@@ -1452,16 +1452,17 @@ namespace ICSharpCode.Decompiler.CSharp.Syntax
 
 			Expression MakeEnumMemberReference(IField field)
 			{
+				string fieldName = $"field_{MetadataTokens.GetToken(field.MetadataToken):X8}";
 				if (declaringEnumMember == null)
 				{
-					var mre = new MemberReferenceExpression(new TypeReferenceExpression(ConvertType(type)), field.Name);
+					var mre = new MemberReferenceExpression(new TypeReferenceExpression(ConvertType(type)), fieldName);
 					if (AddResolveResultAnnotations)
 						mre.AddAnnotation(new MemberResolveResult(mre.Target.GetResolveResult(), field));
 					return mre;
 				}
 				else
 				{
-					var ie = new IdentifierExpression(field.Name);
+					var ie = new IdentifierExpression(fieldName);
 					if (AddResolveResultAnnotations)
 						ie.AddAnnotation(new MemberResolveResult(null, field));
 					return ie;
@@ -2321,7 +2322,7 @@ namespace ICSharpCode.Decompiler.CSharp.Syntax
 					initializer = new ErrorExpression(ex.Message);
 				}
 			}
-			decl.Variables.Add(new VariableInitializer(field.Name, initializer));
+			decl.Variables.Add(new VariableInitializer($"field_{MetadataTokens.GetToken(field.MetadataToken):X8}", initializer));
 			return decl;
 		}
 

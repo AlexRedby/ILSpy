@@ -24,6 +24,7 @@ using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Linq;
 using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using System.Threading;
 
@@ -2724,7 +2725,7 @@ namespace ICSharpCode.Decompiler.CSharp
 					fieldDecl.Attributes.MoveTo(fixedFieldDecl.Attributes);
 					fixedFieldDecl.Modifiers = fieldDecl.Modifiers;
 					fixedFieldDecl.ReturnType = typeSystemAstBuilder.ConvertType(elementType);
-					fixedFieldDecl.Variables.Add(new FixedVariableInitializer(field.Name, new PrimitiveExpression(elementCount)));
+					fixedFieldDecl.Variables.Add(new FixedVariableInitializer($"field_{MetadataTokens.GetToken(field.MetadataToken):X8}", new PrimitiveExpression(elementCount)));
 					fixedFieldDecl.Variables.Single().CopyAnnotationsFrom(((FieldDeclaration)fieldDecl).Variables.Single());
 					fixedFieldDecl.CopyAnnotationsFrom(fieldDecl);
 					RemoveAttribute(fixedFieldDecl, KnownAttribute.FixedBuffer);

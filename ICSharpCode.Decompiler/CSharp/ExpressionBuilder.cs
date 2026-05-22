@@ -23,6 +23,7 @@ using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
 using System.Threading;
 
 using ICSharpCode.Decompiler.CSharp.Resolver;
@@ -396,9 +397,10 @@ namespace ICSharpCode.Decompiler.CSharp
 				mrr = new MemberResolveResult(target.ResolveResult, field);
 			}
 
+			var fieldName = $"field_{MetadataTokens.GetToken(field.MetadataToken):X8}";
 			var expr = requireTarget
-				? new MemberReferenceExpression(target, field.Name).WithRR(mrr)
-				: new IdentifierExpression(field.Name).WithRR(mrr);
+				? new MemberReferenceExpression(target, fieldName).WithRR(mrr)
+				: new IdentifierExpression(fieldName).WithRR(mrr);
 
 			if (field.Type.Kind == TypeKind.ByReference)
 			{
