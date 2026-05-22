@@ -22,6 +22,7 @@ using System.Collections.Immutable;
 using System.Diagnostics;
 using System.Linq;
 using System.Reflection;
+using System.Reflection.Metadata.Ecma335;
 using System.Runtime.CompilerServices;
 
 using ICSharpCode.Decompiler.CSharp.Resolver;
@@ -1302,7 +1303,7 @@ namespace ICSharpCode.Decompiler.CSharp.Syntax
 			{
 				if (value == val)
 				{
-					var mre = new MemberReferenceExpression(new TypeReferenceExpression(ConvertType(type)), field.Name);
+					var mre = new MemberReferenceExpression(new TypeReferenceExpression(ConvertType(type)), $"field_{MetadataTokens.GetToken(field.MetadataToken):X8}");
 					if (AddResolveResultAnnotations)
 						mre.AddAnnotation(new MemberResolveResult(mre.Target.GetResolveResult(), field));
 					return mre;
@@ -1337,7 +1338,7 @@ namespace ICSharpCode.Decompiler.CSharp.Syntax
 
 					if ((fieldValue & enumValue) == fieldValue)
 					{
-						var fieldExpression = new MemberReferenceExpression(new TypeReferenceExpression(ConvertType(type)), field.Name);
+						var fieldExpression = new MemberReferenceExpression(new TypeReferenceExpression(ConvertType(type)), $"field_{MetadataTokens.GetToken(field.MetadataToken):X8}");
 						if (expr == null)
 							expr = fieldExpression;
 						else
@@ -1347,7 +1348,7 @@ namespace ICSharpCode.Decompiler.CSharp.Syntax
 					}
 					if ((fieldValue & negatedEnumValue) == fieldValue)
 					{
-						var fieldExpression = new MemberReferenceExpression(new TypeReferenceExpression(ConvertType(type)), field.Name);
+						var fieldExpression = new MemberReferenceExpression(new TypeReferenceExpression(ConvertType(type)), $"field_{MetadataTokens.GetToken(field.MetadataToken):X8}");
 						if (negatedExpr == null)
 							negatedExpr = fieldExpression;
 						else
@@ -2067,7 +2068,7 @@ namespace ICSharpCode.Decompiler.CSharp.Syntax
 					initializer = new ErrorExpression(ex.Message);
 				}
 			}
-			decl.Variables.Add(new VariableInitializer(field.Name, initializer));
+			decl.Variables.Add(new VariableInitializer($"field_{MetadataTokens.GetToken(field.MetadataToken):X8}", initializer));
 			return decl;
 		}
 
