@@ -2708,6 +2708,10 @@ namespace ICSharpCode.Decompiler.CSharp
 						}
 					}
 					enumDec.Attributes.AddRange(field.GetAttributes().Select(a => new AttributeSection(typeSystemAstBuilder.ConvertAttribute(a))));
+					var decompiledNameAttr = new ICSharpCode.Decompiler.CSharp.Syntax.Attribute();
+					decompiledNameAttr.Type = new SimpleType("DecompiledName");
+					decompiledNameAttr.Arguments.Add(new PrimitiveExpression(field.Name));
+					enumDec.Attributes.Add(new AttributeSection(decompiledNameAttr));
 					enumDec.AddAnnotation(new MemberResolveResult(null, field));
 					return enumDec;
 				}
@@ -2722,10 +2726,14 @@ namespace ICSharpCode.Decompiler.CSharp
 				if (settings.FixedBuffers && IsFixedField(field, out var elementType, out var elementCount))
 				{
 					var fixedFieldDecl = new FixedFieldDeclaration();
-					fieldDecl.Attributes.MoveTo(fixedFieldDecl.Attributes);
-					fixedFieldDecl.Modifiers = fieldDecl.Modifiers;
-					fixedFieldDecl.ReturnType = typeSystemAstBuilder.ConvertType(elementType);
-					fixedFieldDecl.Variables.Add(new FixedVariableInitializer($"field_{MetadataTokens.GetToken(field.MetadataToken):X8}", new PrimitiveExpression(elementCount)));
+				fieldDecl.Attributes.MoveTo(fixedFieldDecl.Attributes);
+				var fixedAttr = new ICSharpCode.Decompiler.CSharp.Syntax.Attribute();
+				fixedAttr.Type = new SimpleType("DecompiledName");
+				fixedAttr.Arguments.Add(new PrimitiveExpression(field.Name));
+				fixedFieldDecl.Attributes.Add(new AttributeSection(fixedAttr));
+				fixedFieldDecl.Modifiers = fieldDecl.Modifiers;
+				fixedFieldDecl.ReturnType = typeSystemAstBuilder.ConvertType(elementType);
+				fixedFieldDecl.Variables.Add(new FixedVariableInitializer($"field_{MetadataTokens.GetToken(field.MetadataToken):X8}", new PrimitiveExpression(elementCount)));
 					fixedFieldDecl.Variables.Single().CopyAnnotationsFrom(((FieldDeclaration)fieldDecl).Variables.Single());
 					fixedFieldDecl.CopyAnnotationsFrom(fieldDecl);
 					RemoveAttribute(fixedFieldDecl, KnownAttribute.FixedBuffer);
