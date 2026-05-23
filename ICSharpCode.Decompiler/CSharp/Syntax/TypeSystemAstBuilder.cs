@@ -1907,6 +1907,7 @@ namespace ICSharpCode.Decompiler.CSharp.Syntax
 			if (ShowAttributes)
 			{
 				decl.Attributes.AddRange(ConvertAttributes(typeDefinition.GetAttributes()));
+				AddDecompiledNameAttribute(decl.Attributes, typeDefinition.Name);
 			}
 			if (AddResolveResultAnnotations)
 			{
@@ -2046,6 +2047,7 @@ namespace ICSharpCode.Decompiler.CSharp.Syntax
 			if (ShowAttributes)
 			{
 				decl.Attributes.AddRange(ConvertAttributes(field.GetAttributes()));
+				AddDecompiledNameAttribute(decl.Attributes, field.Name);
 			}
 			if (AddResolveResultAnnotations)
 			{
@@ -2145,6 +2147,7 @@ namespace ICSharpCode.Decompiler.CSharp.Syntax
 			if (ShowAttributes)
 			{
 				decl.Attributes.AddRange(ConvertAttributes(property.GetAttributes()));
+				AddDecompiledNameAttribute(decl.Attributes, property.Name);
 			}
 			if (AddResolveResultAnnotations)
 			{
@@ -2185,6 +2188,7 @@ namespace ICSharpCode.Decompiler.CSharp.Syntax
 			if (ShowAttributes)
 			{
 				decl.Attributes.AddRange(ConvertAttributes(indexer.GetAttributes()));
+				AddDecompiledNameAttribute(decl.Attributes, indexer.Name);
 			}
 			if (AddResolveResultAnnotations)
 			{
@@ -2215,6 +2219,7 @@ namespace ICSharpCode.Decompiler.CSharp.Syntax
 				if (ShowAttributes)
 				{
 					decl.Attributes.AddRange(ConvertAttributes(ev.GetAttributes()));
+					AddDecompiledNameAttribute(decl.Attributes, ev.Name);
 				}
 				if (AddResolveResultAnnotations)
 				{
@@ -2235,6 +2240,7 @@ namespace ICSharpCode.Decompiler.CSharp.Syntax
 				if (ShowAttributes)
 				{
 					decl.Attributes.AddRange(ConvertAttributes(ev.GetAttributes()));
+					AddDecompiledNameAttribute(decl.Attributes, ev.Name);
 				}
 				if (AddResolveResultAnnotations)
 				{
@@ -2254,6 +2260,7 @@ namespace ICSharpCode.Decompiler.CSharp.Syntax
 			{
 				decl.Attributes.AddRange(ConvertAttributes(method.GetAttributes()));
 				decl.Attributes.AddRange(ConvertAttributes(method.GetReturnTypeAttributes(), "return"));
+				AddDecompiledNameAttribute(decl.Attributes, method.Name);
 			}
 			if (AddResolveResultAnnotations)
 			{
@@ -2323,6 +2330,7 @@ namespace ICSharpCode.Decompiler.CSharp.Syntax
 			{
 				decl.Attributes.AddRange(ConvertAttributes(op.GetAttributes()));
 				decl.Attributes.AddRange(ConvertAttributes(op.GetReturnTypeAttributes(), "return"));
+				AddDecompiledNameAttribute(decl.Attributes, op.Name);
 			}
 			if (AddResolveResultAnnotations)
 			{
@@ -2338,7 +2346,10 @@ namespace ICSharpCode.Decompiler.CSharp.Syntax
 			ConstructorDeclaration decl = new ConstructorDeclaration();
 			decl.Modifiers = GetMemberModifiers(ctor);
 			if (ShowAttributes)
+			{
 				decl.Attributes.AddRange(ConvertAttributes(ctor.GetAttributes()));
+				AddDecompiledNameAttribute(decl.Attributes, ctor.Name);
+			}
 			if (ctor.DeclaringTypeDefinition != null)
 				decl.Name = ctor.DeclaringTypeDefinition.Name;
 			foreach (IParameter p in ctor.Parameters)
@@ -2357,7 +2368,10 @@ namespace ICSharpCode.Decompiler.CSharp.Syntax
 		{
 			DestructorDeclaration decl = new DestructorDeclaration();
 			if (ShowAttributes)
+			{
 				decl.Attributes.AddRange(ConvertAttributes(dtor.GetAttributes()));
+				AddDecompiledNameAttribute(decl.Attributes, dtor.Name);
+			}
 			if (dtor.DeclaringTypeDefinition != null)
 				decl.Name = dtor.DeclaringTypeDefinition.Name;
 			if (AddResolveResultAnnotations)
@@ -2473,6 +2487,14 @@ namespace ICSharpCode.Decompiler.CSharp.Syntax
 			return m;
 		}
 		#endregion
+
+		static void AddDecompiledNameAttribute(AstNodeCollection<AttributeSection> attributes, string originalName)
+		{
+			var attr = new Attribute();
+			attr.Type = new SimpleType("DecompiledName");
+			attr.Arguments.Add(new PrimitiveExpression(originalName));
+			attributes.Add(new AttributeSection(attr));
+		}
 
 		#region Convert Type Parameter
 		internal TypeParameterDeclaration ConvertTypeParameter(ITypeParameter tp)
