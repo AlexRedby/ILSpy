@@ -150,6 +150,13 @@ namespace ICSharpCode.Decompiler.CSharp.Syntax
 		public bool ShowConstantValues { get; set; }
 
 		/// <summary>
+		/// When true, replace all member and type names with metadata-token-based identifiers
+		/// and emit [DecompiledName] attributes preserving original names.
+		/// The default value is <see langword="false" />.
+		/// </summary>
+		public bool TokenizeNames { get; set; }
+
+		/// <summary>
 		/// Controls whether to show attributes.
 		/// The default value is <see langword="false" />.
 		/// </summary>
@@ -320,7 +327,7 @@ namespace ICSharpCode.Decompiler.CSharp.Syntax
 			var typeDef = type.GetDefinition();
 			if (typeDef is IEntity entity && entity.ParentModule != null)
 			{
-				if (entity.ParentModule.Name.Contains("Assembly-CSharp"))
+				if (TokenizeNames && entity.ParentModule.Name.Contains("Assembly-CSharp"))
 				{
 					return $"type_{MetadataTokens.GetToken(entity.MetadataToken):X8}";
 				}
@@ -1326,7 +1333,8 @@ namespace ICSharpCode.Decompiler.CSharp.Syntax
 			{
 				if (value == val)
 				{
-					var mre = new MemberReferenceExpression(new TypeReferenceExpression(ConvertType(type)), $"field_{MetadataTokens.GetToken(field.MetadataToken):X8}");
+					var fieldTokenName = TokenizeNames ? $"field_{MetadataTokens.GetToken(field.MetadataToken):X8}" : field.Name;
+					var mre = new MemberReferenceExpression(new TypeReferenceExpression(ConvertType(type)), fieldTokenName);
 					if (AddResolveResultAnnotations)
 						mre.AddAnnotation(new MemberResolveResult(mre.Target.GetResolveResult(), field));
 					return mre;
@@ -1361,7 +1369,8 @@ namespace ICSharpCode.Decompiler.CSharp.Syntax
 
 					if ((fieldValue & enumValue) == fieldValue)
 					{
-						var fieldExpression = new MemberReferenceExpression(new TypeReferenceExpression(ConvertType(type)), $"field_{MetadataTokens.GetToken(field.MetadataToken):X8}");
+						var fieldTokenName = TokenizeNames ? $"field_{MetadataTokens.GetToken(field.MetadataToken):X8}" : field.Name;
+						var fieldExpression = new MemberReferenceExpression(new TypeReferenceExpression(ConvertType(type)), fieldTokenName);
 						if (expr == null)
 							expr = fieldExpression;
 						else
@@ -1371,7 +1380,8 @@ namespace ICSharpCode.Decompiler.CSharp.Syntax
 					}
 					if ((fieldValue & negatedEnumValue) == fieldValue)
 					{
-						var fieldExpression = new MemberReferenceExpression(new TypeReferenceExpression(ConvertType(type)), $"field_{MetadataTokens.GetToken(field.MetadataToken):X8}");
+						var fieldTokenName = TokenizeNames ? $"field_{MetadataTokens.GetToken(field.MetadataToken):X8}" : field.Name;
+						var fieldExpression = new MemberReferenceExpression(new TypeReferenceExpression(ConvertType(type)), fieldTokenName);
 						if (negatedExpr == null)
 							negatedExpr = fieldExpression;
 						else
@@ -1754,7 +1764,8 @@ namespace ICSharpCode.Decompiler.CSharp.Syntax
 			if (ShowAttributes)
 			{
 				decl.Attributes.AddRange(ConvertAttributes(parameter.GetAttributes()));
-				AddDecompiledNameAttribute(decl.Attributes, parameter.Name);
+				if (TokenizeNames)
+					AddDecompiledNameAttribute(decl.Attributes, parameter.Name);
 			}
 			IType parameterType;
 			if (parameter.Type.Kind == TypeKind.ByReference)
@@ -1928,16 +1939,20 @@ namespace ICSharpCode.Decompiler.CSharp.Syntax
 			var decl = new TypeDeclaration();
 			decl.ClassType = classType;
 			decl.Modifiers = modifiers;
-			if (ShowAttributes)
+if (ShowAttributes)
 			{
 				decl.Attributes.AddRange(ConvertAttributes(typeDefinition.GetAttributes()));
-				AddDecompiledNameAttribute(decl.Attributes, typeDefinition.Name);
+				if (TokenizeNames)
+					AddDecompiledNameAttribute(decl.Attributes, typeDefinition.Name);
 			}
 			if (AddResolveResultAnnotations)
 			{
 				decl.AddAnnotation(new TypeResolveResult(typeDefinition));
 			}
-			decl.Name = $"type_{MetadataTokens.GetToken(typeDefinition.MetadataToken):X8}";
+			if (TokenizeNames)
+				decl.Name = $"type_{MetadataTokens.GetToken(typeDefinition.MetadataToken):X8}";
+			else
+				decl.Name = typeDefinition.Name == "_" ? "@_" : typeDefinition.Name;
 
 			int outerTypeParameterCount = (typeDefinition.DeclaringTypeDefinition == null) ? 0 : typeDefinition.DeclaringTypeDefinition.TypeParameterCount;
 
@@ -2018,7 +2033,10 @@ namespace ICSharpCode.Decompiler.CSharp.Syntax
 			{
 				ct.HasReadOnlySpecifier = true;
 			}
-			decl.Name = $"type_{MetadataTokens.GetToken(d.MetadataToken):X8}";
+			if (TokenizeNames)
+				decl.Name = $"type_{MetadataTokens.GetToken(d.MetadataToken):X8}";
+			else
+				decl.Name = d.Name;
 
 			int outerTypeParameterCount = (d.DeclaringTypeDefinition == null) ? 0 : d.DeclaringTypeDefinition.TypeParameterCount;
 
@@ -2071,7 +2089,8 @@ namespace ICSharpCode.Decompiler.CSharp.Syntax
 			if (ShowAttributes)
 			{
 				decl.Attributes.AddRange(ConvertAttributes(field.GetAttributes()));
-				AddDecompiledNameAttribute(decl.Attributes, field.Name);
+				if (TokenizeNames)
+					AddDecompiledNameAttribute(decl.Attributes, field.Name);
 			}
 			if (AddResolveResultAnnotations)
 			{
@@ -2094,7 +2113,10 @@ namespace ICSharpCode.Decompiler.CSharp.Syntax
 					initializer = new ErrorExpression(ex.Message);
 				}
 			}
-			decl.Variables.Add(new VariableInitializer($"field_{MetadataTokens.GetToken(field.MetadataToken):X8}", initializer));
+			string fieldName = TokenizeNames
+				? $"field_{MetadataTokens.GetToken(field.MetadataToken):X8}"
+				: field.Name;
+			decl.Variables.Add(new VariableInitializer(fieldName, initializer));
 			return decl;
 		}
 
@@ -2171,7 +2193,8 @@ namespace ICSharpCode.Decompiler.CSharp.Syntax
 			if (ShowAttributes)
 			{
 				decl.Attributes.AddRange(ConvertAttributes(property.GetAttributes()));
-				AddDecompiledNameAttribute(decl.Attributes, property.Name);
+				if (TokenizeNames)
+					AddDecompiledNameAttribute(decl.Attributes, property.Name);
 			}
 			if (AddResolveResultAnnotations)
 			{
@@ -2182,7 +2205,10 @@ namespace ICSharpCode.Decompiler.CSharp.Syntax
 			{
 				ct.HasReadOnlySpecifier = true;
 			}
-			decl.Name = $"prop_{MetadataTokens.GetToken(property.MetadataToken):X8}";
+			if (TokenizeNames)
+				decl.Name = $"prop_{MetadataTokens.GetToken(property.MetadataToken):X8}";
+			else
+				decl.Name = property.Name;
 			decl.Getter = ConvertAccessor(property.Getter, MethodSemanticsAttributes.Getter, property.Accessibility, false);
 			decl.Setter = ConvertAccessor(property.Setter, MethodSemanticsAttributes.Setter, property.Accessibility, true);
 			decl.PrivateImplementationType = GetExplicitInterfaceType(property);
@@ -2212,7 +2238,8 @@ namespace ICSharpCode.Decompiler.CSharp.Syntax
 			if (ShowAttributes)
 			{
 				decl.Attributes.AddRange(ConvertAttributes(indexer.GetAttributes()));
-				AddDecompiledNameAttribute(decl.Attributes, indexer.Name);
+				if (TokenizeNames)
+					AddDecompiledNameAttribute(decl.Attributes, indexer.Name);
 			}
 			if (AddResolveResultAnnotations)
 			{
@@ -2243,14 +2270,18 @@ namespace ICSharpCode.Decompiler.CSharp.Syntax
 				if (ShowAttributes)
 				{
 					decl.Attributes.AddRange(ConvertAttributes(ev.GetAttributes()));
-					AddDecompiledNameAttribute(decl.Attributes, ev.Name);
+					if (TokenizeNames)
+						AddDecompiledNameAttribute(decl.Attributes, ev.Name);
 				}
 				if (AddResolveResultAnnotations)
 				{
 					decl.AddAnnotation(new MemberResolveResult(null, ev));
 				}
 				decl.ReturnType = ConvertType(ev.ReturnType);
-				decl.Name = $"event_{MetadataTokens.GetToken(ev.MetadataToken):X8}";
+				if (TokenizeNames)
+					decl.Name = $"event_{MetadataTokens.GetToken(ev.MetadataToken):X8}";
+				else
+					decl.Name = ev.Name;
 				decl.AddAccessor = ConvertAccessor(ev.AddAccessor, MethodSemanticsAttributes.Adder, ev.Accessibility, true);
 				decl.RemoveAccessor = ConvertAccessor(ev.RemoveAccessor, MethodSemanticsAttributes.Remover, ev.Accessibility, true);
 				decl.PrivateImplementationType = GetExplicitInterfaceType(ev);
@@ -2264,14 +2295,18 @@ namespace ICSharpCode.Decompiler.CSharp.Syntax
 				if (ShowAttributes)
 				{
 					decl.Attributes.AddRange(ConvertAttributes(ev.GetAttributes()));
-					AddDecompiledNameAttribute(decl.Attributes, ev.Name);
+					if (TokenizeNames)
+						AddDecompiledNameAttribute(decl.Attributes, ev.Name);
 				}
 				if (AddResolveResultAnnotations)
 				{
 					decl.AddAnnotation(new MemberResolveResult(null, ev));
 				}
 				decl.ReturnType = ConvertType(ev.ReturnType);
-				decl.Variables.Add(new VariableInitializer($"event_{MetadataTokens.GetToken(ev.MetadataToken):X8}"));
+				if (TokenizeNames)
+					decl.Variables.Add(new VariableInitializer($"event_{MetadataTokens.GetToken(ev.MetadataToken):X8}"));
+				else
+					decl.Variables.Add(new VariableInitializer(ev.Name));
 				return decl;
 			}
 		}
@@ -2284,7 +2319,8 @@ namespace ICSharpCode.Decompiler.CSharp.Syntax
 			{
 				decl.Attributes.AddRange(ConvertAttributes(method.GetAttributes()));
 				decl.Attributes.AddRange(ConvertAttributes(method.GetReturnTypeAttributes(), "return"));
-				AddDecompiledNameAttribute(decl.Attributes, method.Name);
+				if (TokenizeNames)
+					AddDecompiledNameAttribute(decl.Attributes, method.Name);
 			}
 			if (AddResolveResultAnnotations)
 			{
@@ -2295,7 +2331,10 @@ namespace ICSharpCode.Decompiler.CSharp.Syntax
 			{
 				ct.HasReadOnlySpecifier = true;
 			}
-			decl.Name = $"method_{MetadataTokens.GetToken(method.MetadataToken):X8}";
+			if (TokenizeNames)
+				decl.Name = $"method_{MetadataTokens.GetToken(method.MetadataToken):X8}";
+			else
+				decl.Name = method.Name;
 
 			if (this.ShowTypeParameters)
 			{
@@ -2354,7 +2393,8 @@ namespace ICSharpCode.Decompiler.CSharp.Syntax
 			{
 				decl.Attributes.AddRange(ConvertAttributes(op.GetAttributes()));
 				decl.Attributes.AddRange(ConvertAttributes(op.GetReturnTypeAttributes(), "return"));
-				AddDecompiledNameAttribute(decl.Attributes, op.Name);
+				if (TokenizeNames)
+					AddDecompiledNameAttribute(decl.Attributes, op.Name);
 			}
 			if (AddResolveResultAnnotations)
 			{
@@ -2372,7 +2412,8 @@ namespace ICSharpCode.Decompiler.CSharp.Syntax
 			if (ShowAttributes)
 			{
 				decl.Attributes.AddRange(ConvertAttributes(ctor.GetAttributes()));
-				AddDecompiledNameAttribute(decl.Attributes, ctor.Name);
+				if (TokenizeNames)
+					AddDecompiledNameAttribute(decl.Attributes, ctor.Name);
 			}
 			if (ctor.DeclaringTypeDefinition != null)
 				decl.Name = ctor.DeclaringTypeDefinition.Name;
@@ -2394,7 +2435,8 @@ namespace ICSharpCode.Decompiler.CSharp.Syntax
 			if (ShowAttributes)
 			{
 				decl.Attributes.AddRange(ConvertAttributes(dtor.GetAttributes()));
-				AddDecompiledNameAttribute(decl.Attributes, dtor.Name);
+				if (TokenizeNames)
+					AddDecompiledNameAttribute(decl.Attributes, dtor.Name);
 			}
 			if (dtor.DeclaringTypeDefinition != null)
 				decl.Name = dtor.DeclaringTypeDefinition.Name;
