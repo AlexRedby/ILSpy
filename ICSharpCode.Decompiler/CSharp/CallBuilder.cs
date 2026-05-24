@@ -538,7 +538,9 @@ namespace ICSharpCode.Decompiler.CSharp
 			}
 
 			Expression targetExpr;
-			string methodName = $"method_{MetadataTokens.GetToken(method.MetadataToken):X8}";
+			string methodName = settings.TokenizeNames
+				? $"method_{MetadataTokens.GetToken(method.MetadataToken):X8}"
+				: method.Name;
 			AstNodeCollection<AstType> typeArgumentList;
 			if ((transform & CallTransformation.NoNamedArgsForPrettiness) != 0)
 			{
@@ -559,7 +561,9 @@ namespace ICSharpCode.Decompiler.CSharp
 				{
 					var interfaceMember = method.ExplicitlyImplementedInterfaceMembers.First();
 					var castExpression = new CastExpression(expressionBuilder.ConvertType(interfaceMember.DeclaringType), target.Expression.Detach());
-					methodName = $"method_{MetadataTokens.GetToken(interfaceMember.MetadataToken):X8}";
+					methodName = settings.TokenizeNames
+						? $"method_{MetadataTokens.GetToken(interfaceMember.MetadataToken):X8}"
+						: interfaceMember.Name;
 					targetExpr = new MemberReferenceExpression(castExpression, methodName);
 					typeArgumentList = ((MemberReferenceExpression)targetExpr).TypeArguments;
 				}
@@ -1682,7 +1686,9 @@ namespace ICSharpCode.Decompiler.CSharp
 
 			var rr = new MemberResolveResult(target.ResolveResult, foundMember);
 
-			string accessorTokenName = $"{(method.AccessorOwner.SymbolKind == SymbolKind.Property ? "prop" : "event")}_{MetadataTokens.GetToken(method.AccessorOwner.MetadataToken):X8}";
+			string accessorName = settings.TokenizeNames
+				? $"{(method.AccessorOwner.SymbolKind == SymbolKind.Property ? "prop" : "event")}_{MetadataTokens.GetToken(method.AccessorOwner.MetadataToken):X8}"
+				: method.AccessorOwner.Name;
 
 			if (isSetter)
 			{
@@ -1695,12 +1701,12 @@ namespace ICSharpCode.Decompiler.CSharp
 				}
 				else if (requireTarget)
 				{
-					expr = new MemberReferenceExpression(target.Expression, accessorTokenName)
+					expr = new MemberReferenceExpression(target.Expression, accessorName)
 						.WithoutILInstruction().WithRR(rr);
 				}
 				else
 				{
-					expr = new IdentifierExpression(accessorTokenName)
+					expr = new IdentifierExpression(accessorName)
 						.WithoutILInstruction().WithRR(rr);
 				}
 
@@ -1727,12 +1733,12 @@ namespace ICSharpCode.Decompiler.CSharp
 				}
 				else if (requireTarget)
 				{
-					return new MemberReferenceExpression(target.Expression, accessorTokenName)
+					return new MemberReferenceExpression(target.Expression, accessorName)
 						.WithoutILInstruction().WithRR(rr);
 				}
 				else
 				{
-					return new IdentifierExpression(accessorTokenName)
+					return new IdentifierExpression(accessorName)
 						.WithoutILInstruction().WithRR(rr);
 				}
 			}
@@ -1987,7 +1993,10 @@ namespace ICSharpCode.Decompiler.CSharp
 					}
 					break;
 				}
-				return (currentTarget, addTypeArguments, $"method_{MetadataTokens.GetToken(method.MetadataToken):X8}", result);
+			string delegateMethodName = settings.TokenizeNames
+				? $"method_{MetadataTokens.GetToken(method.MetadataToken):X8}"
+				: method.Name;
+			return (currentTarget, addTypeArguments, delegateMethodName, result);
 			}
 			else
 			{
@@ -2052,11 +2061,14 @@ namespace ICSharpCode.Decompiler.CSharp
 					}
 					break;
 				}
-				if (result is MethodGroupResolveResult mgrr)
-				{
-					result = mgrr.WithChosenMethod(method);
-				}
-				return (currentTarget, addTypeArguments, $"method_{MetadataTokens.GetToken(method.MetadataToken):X8}", result);
+			if (result is MethodGroupResolveResult mgrr)
+			{
+				result = mgrr.WithChosenMethod(method);
+			}
+			string delegateMethodName = settings.TokenizeNames
+				? $"method_{MetadataTokens.GetToken(method.MetadataToken):X8}"
+				: method.Name;
+			return (currentTarget, addTypeArguments, delegateMethodName, result);
 			}
 		}
 
