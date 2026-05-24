@@ -1936,7 +1936,7 @@ namespace ICSharpCode.Decompiler.CSharp
 				int lastDot = method.Name.LastIndexOf('.');
 				if (methodDecl is not OperatorDeclaration && method.IsExplicitInterfaceImplementation && lastDot >= 0)
 				{
-					methodDecl.Name = method.Name.Substring(lastDot + 1);
+					methodDecl.Name = $"method_{MetadataTokens.GetToken(method.MetadataToken):X8}";
 				}
 				FixParameterNames(methodDecl);
 				var methodDefinition = metadata.GetMethodDefinition((MethodDefinitionHandle)method.MetadataToken);
@@ -2274,7 +2274,7 @@ namespace ICSharpCode.Decompiler.CSharp
 				var typeSystemAstBuilder = CreateAstBuilder(decompileRun.Settings);
 				if (decompilationContext.CurrentTypeDefinition.Kind == TypeKind.Enum && field.IsConst)
 				{
-					var enumDec = new EnumMemberDeclaration { Name = field.Name };
+					var enumDec = new EnumMemberDeclaration { Name = $"field_{MetadataTokens.GetToken(field.MetadataToken):X8}" };
 					object constantValue = field.GetConstantValue();
 					if (constantValue != null)
 					{
@@ -2371,7 +2371,7 @@ namespace ICSharpCode.Decompiler.CSharp
 				if (property.IsExplicitInterfaceImplementation && !property.IsIndexer)
 				{
 					int lastDot = property.Name.LastIndexOf('.');
-					propertyDecl.Name = property.Name.Substring(lastDot + 1);
+					propertyDecl.Name = $"prop_{MetadataTokens.GetToken(property.MetadataToken):X8}";
 				}
 				FixParameterNames(propertyDecl);
 				Accessor getter, setter;
@@ -2446,7 +2446,7 @@ namespace ICSharpCode.Decompiler.CSharp
 				int lastDot = ev.Name.LastIndexOf('.');
 				if (ev.IsExplicitInterfaceImplementation)
 				{
-					eventDecl.Name = ev.Name.Substring(lastDot + 1);
+					eventDecl.Name = $"event_{MetadataTokens.GetToken(ev.MetadataToken):X8}";
 				}
 				if (adderHasBody)
 				{

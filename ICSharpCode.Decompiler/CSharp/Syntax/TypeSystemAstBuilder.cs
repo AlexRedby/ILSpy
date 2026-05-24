@@ -1731,6 +1731,7 @@ namespace ICSharpCode.Decompiler.CSharp.Syntax
 			if (ShowAttributes)
 			{
 				decl.Attributes.AddRange(ConvertAttributes(parameter.GetAttributes()));
+				AddDecompiledNameAttribute(decl.Attributes, parameter.Name);
 			}
 			IType parameterType;
 			if (parameter.Type.Kind == TypeKind.ByReference)
@@ -1913,7 +1914,7 @@ namespace ICSharpCode.Decompiler.CSharp.Syntax
 			{
 				decl.AddAnnotation(new TypeResolveResult(typeDefinition));
 			}
-			decl.Name = typeDefinition.Name == "_" ? "@_" : typeDefinition.Name;
+			decl.Name = $"type_{MetadataTokens.GetToken(typeDefinition.MetadataToken):X8}";
 
 			int outerTypeParameterCount = (typeDefinition.DeclaringTypeDefinition == null) ? 0 : typeDefinition.DeclaringTypeDefinition.TypeParameterCount;
 
@@ -1994,7 +1995,7 @@ namespace ICSharpCode.Decompiler.CSharp.Syntax
 			{
 				ct.HasReadOnlySpecifier = true;
 			}
-			decl.Name = d.Name;
+			decl.Name = $"type_{MetadataTokens.GetToken(d.MetadataToken):X8}";
 
 			int outerTypeParameterCount = (d.DeclaringTypeDefinition == null) ? 0 : d.DeclaringTypeDefinition.TypeParameterCount;
 
@@ -2158,7 +2159,7 @@ namespace ICSharpCode.Decompiler.CSharp.Syntax
 			{
 				ct.HasReadOnlySpecifier = true;
 			}
-			decl.Name = property.Name;
+			decl.Name = $"prop_{MetadataTokens.GetToken(property.MetadataToken):X8}";
 			decl.Getter = ConvertAccessor(property.Getter, MethodSemanticsAttributes.Getter, property.Accessibility, false);
 			decl.Setter = ConvertAccessor(property.Setter, MethodSemanticsAttributes.Setter, property.Accessibility, true);
 			decl.PrivateImplementationType = GetExplicitInterfaceType(property);
@@ -2226,7 +2227,7 @@ namespace ICSharpCode.Decompiler.CSharp.Syntax
 					decl.AddAnnotation(new MemberResolveResult(null, ev));
 				}
 				decl.ReturnType = ConvertType(ev.ReturnType);
-				decl.Name = ev.Name;
+				decl.Name = $"event_{MetadataTokens.GetToken(ev.MetadataToken):X8}";
 				decl.AddAccessor = ConvertAccessor(ev.AddAccessor, MethodSemanticsAttributes.Adder, ev.Accessibility, true);
 				decl.RemoveAccessor = ConvertAccessor(ev.RemoveAccessor, MethodSemanticsAttributes.Remover, ev.Accessibility, true);
 				decl.PrivateImplementationType = GetExplicitInterfaceType(ev);
@@ -2247,7 +2248,7 @@ namespace ICSharpCode.Decompiler.CSharp.Syntax
 					decl.AddAnnotation(new MemberResolveResult(null, ev));
 				}
 				decl.ReturnType = ConvertType(ev.ReturnType);
-				decl.Variables.Add(new VariableInitializer(ev.Name));
+				decl.Variables.Add(new VariableInitializer($"event_{MetadataTokens.GetToken(ev.MetadataToken):X8}"));
 				return decl;
 			}
 		}
@@ -2271,7 +2272,7 @@ namespace ICSharpCode.Decompiler.CSharp.Syntax
 			{
 				ct.HasReadOnlySpecifier = true;
 			}
-			decl.Name = method.Name;
+			decl.Name = $"method_{MetadataTokens.GetToken(method.MetadataToken):X8}";
 
 			if (this.ShowTypeParameters)
 			{
