@@ -1060,6 +1060,20 @@ namespace ICSharpCode.Decompiler
 			}
 		}
 
+		bool tokenizeNames = false;
+
+		[Category("Deobfuscation")]
+		[Description("Replace all member and type names with metadata-token-based identifiers (field_XXXXXXXX, method_XXXXXXXX, type_XXXXXXXX, etc.) and emit [DecompiledName] attributes.")]
+		public bool TokenizeNames {
+			get { return tokenizeNames; }
+			set {
+				if (tokenizeNames != value) {
+					tokenizeNames = value;
+					OnPropertyChanged();
+				}
+			}
+		}
+
 		bool alwaysQualifyMemberReferences = false;
 
 		/// <summary>
