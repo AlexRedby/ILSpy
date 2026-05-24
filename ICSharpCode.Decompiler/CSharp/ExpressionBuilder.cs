@@ -397,7 +397,9 @@ namespace ICSharpCode.Decompiler.CSharp
 				mrr = new MemberResolveResult(target.ResolveResult, field);
 			}
 
-			var fieldName = $"field_{MetadataTokens.GetToken(field.MetadataToken):X8}";
+			string fieldName = settings.TokenizeNames
+				? $"field_{MetadataTokens.GetToken(field.MetadataToken):X8}"
+				: field.Name;
 			var expr = requireTarget
 				? new MemberReferenceExpression(target, fieldName).WithRR(mrr)
 				: new IdentifierExpression(fieldName).WithRR(mrr);
