@@ -162,6 +162,10 @@ namespace ICSharpCode.Decompiler.CSharp.ProjectDecompiler
 			{
 				files.AddRange(WriteMiscellaneousFilesInProject(module));
 			}
+			if (Settings.TokenizeNames)
+			{
+				files.AddRange(WriteDecompiledNameAttributeFile());
+			}
 			if (StrongNameKeyFile != null)
 			{
 				File.Copy(StrongNameKeyFile, Path.Combine(targetDirectory, Path.GetFileName(StrongNameKeyFile)), overwrite: true);
@@ -234,6 +238,29 @@ namespace ICSharpCode.Decompiler.CSharp.ProjectDecompiler
 			return new[] { new ProjectItemInfo("Compile", assemblyInfo) };
 		}
 
+		IEnumerable<ProjectItemInfo> WriteDecompiledNameAttributeFile()
+		{
+			const string prop = "Properties";
+			if (directories.Add(prop))
+				CreateDirectory(Path.Combine(TargetDirectory, prop));
+			string filePath = Path.Combine(prop, "_DecompiledNameAttribute.cs");
+			using (var w = CreateFile(Path.Combine(TargetDirectory, filePath)))
+			{
+				w.WriteLine("using System;");
+				w.WriteLine();
+				w.WriteLine("namespace System.Runtime.CompilerServices");
+				w.WriteLine("{");
+				w.WriteLine("    [AttributeUsage(AttributeTargets.All, Inherited = false, AllowMultiple = false)]");
+				w.WriteLine("    public sealed class DecompiledNameAttribute : Attribute");
+				w.WriteLine("    {");
+				w.WriteLine("        public string Name { get; }");
+				w.WriteLine("        public DecompiledNameAttribute(string name) { Name = name; }");
+				w.WriteLine("    }");
+				w.WriteLine("}");
+			}
+			return new[] { new ProjectItemInfo("Compile", filePath) };
+		}
+
 		IEnumerable<ProjectItemInfo> WriteCodeFilesInProject(MetadataFile module, IList<PartialTypeInfo> partialTypes, CancellationToken cancellationToken)
 		{
 			var metadata = module.Metadata;
@@ -260,7 +287,9 @@ namespace ICSharpCode.Decompiler.CSharp.ProjectDecompiler
 			string GetFileFileNameForHandle(TypeDefinitionHandle h)
 			{
 				var type = metadata.GetTypeDefinition(h);
-				string file = CleanUpFileName($"type_{MetadataTokens.GetToken(h):X8}", ".cs");
+				string file = Settings.TokenizeNames
+				? CleanUpFileName($"type_{MetadataTokens.GetToken(h):X8}", ".cs")
+				: CleanUpFileName(metadata.GetString(type.Name), ".cs");
 				string ns = metadata.GetString(type.Namespace);
 				if (string.IsNullOrEmpty(ns))
 				{
