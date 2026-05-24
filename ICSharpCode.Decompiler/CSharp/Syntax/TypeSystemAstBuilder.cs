@@ -313,7 +313,7 @@ namespace ICSharpCode.Decompiler.CSharp.Syntax
 			return type;
 		}
 
-		static string GetDisplayName(IType type)
+		string GetDisplayName(IType type)
 		{
 			if (type is ITypeParameter)
 				return type.Name;
@@ -1939,7 +1939,7 @@ namespace ICSharpCode.Decompiler.CSharp.Syntax
 			var decl = new TypeDeclaration();
 			decl.ClassType = classType;
 			decl.Modifiers = modifiers;
-if (ShowAttributes)
+			if (ShowAttributes)
 			{
 				decl.Attributes.AddRange(ConvertAttributes(typeDefinition.GetAttributes()));
 				if (TokenizeNames)
