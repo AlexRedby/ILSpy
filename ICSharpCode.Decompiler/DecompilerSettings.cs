@@ -1066,8 +1066,10 @@ namespace ICSharpCode.Decompiler
 		[Description("Replace all member and type names with metadata-token-based identifiers (field_XXXXXXXX, method_XXXXXXXX, type_XXXXXXXX, etc.) and emit [DecompiledName] attributes.")]
 		public bool TokenizeNames {
 			get { return tokenizeNames; }
-			set {
-				if (tokenizeNames != value) {
+			set
+			{
+				if (tokenizeNames != value)
+				{
 					tokenizeNames = value;
 					OnPropertyChanged();
 				}
