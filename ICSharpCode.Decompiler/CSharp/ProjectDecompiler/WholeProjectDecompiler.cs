@@ -24,6 +24,7 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
@@ -402,7 +403,7 @@ namespace ICSharpCode.Decompiler.CSharp.ProjectDecompiler
 				}
 
 				var type = metadata.GetTypeDefinition(h);
-				string fileName = GetFileNameForType(metadata.GetString(type.Namespace), metadata.GetString(type.Name), ".cs");
+				string fileName = GetFileNameForType(metadata.GetString(type.Namespace), $"type_{MetadataTokens.GetToken(h):X8}", ".cs");
 				string directory = Path.GetDirectoryName(fileName)!;
 				if (!string.IsNullOrEmpty(directory) && directories.Add(directory))
 					CreateDirectory(Path.Combine(TargetDirectory, directory));
