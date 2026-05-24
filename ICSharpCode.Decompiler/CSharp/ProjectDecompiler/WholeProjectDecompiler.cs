@@ -266,6 +266,8 @@ namespace ICSharpCode.Decompiler.CSharp.ProjectDecompiler
 				var files = WriteCodeFilesInProject(file, resources.SelectMany(r => r.PartialTypes ?? Enumerable.Empty<PartialTypeInfo>()).ToList(), cancellationToken).ToList();
 				codeFileCount = files.Count;
 				files.AddRange(resources);
+				if (Settings.TokenizeNames)
+					files.AddRange(WriteDecompiledNameAttributeFile());
 				var module = file as PEFile;
 				if (module != null)
 				{
@@ -348,6 +350,29 @@ namespace ICSharpCode.Decompiler.CSharp.ProjectDecompiler
 			return new[] { new ProjectItemInfo("Compile", assemblyInfo) };
 		}
 
+		IEnumerable<ProjectItemInfo> WriteDecompiledNameAttributeFile()
+		{
+			const string prop = "Properties";
+			if (directories.Add(prop))
+				CreateDirectory(Path.Combine(TargetDirectory, prop));
+			string filePath = Path.Combine(prop, "_DecompiledNameAttribute.cs");
+			using (var w = CreateFile(Path.Combine(TargetDirectory, filePath)))
+			{
+				w.WriteLine("using System;");
+				w.WriteLine();
+				w.WriteLine("namespace System.Runtime.CompilerServices");
+				w.WriteLine("{");
+				w.WriteLine("    [AttributeUsage(AttributeTargets.All, Inherited = false, AllowMultiple = false)]");
+				w.WriteLine("    public sealed class DecompiledNameAttribute : Attribute");
+				w.WriteLine("    {");
+				w.WriteLine("        public string Name { get; }");
+				w.WriteLine("        public DecompiledNameAttribute(string name) { Name = name; }");
+				w.WriteLine("    }");
+				w.WriteLine("}");
+			}
+			return new[] { new ProjectItemInfo("Compile", filePath) };
+		}
+
 		IEnumerable<ProjectItemInfo> WriteCodeFilesInProject(MetadataFile module, IList<PartialTypeInfo> partialTypes, CancellationToken cancellationToken)
 		{
 			var metadata = module.Metadata;
@@ -403,7 +428,8 @@ namespace ICSharpCode.Decompiler.CSharp.ProjectDecompiler
 				}
 
 				var type = metadata.GetTypeDefinition(h);
-				string fileName = GetFileNameForType(metadata.GetString(type.Namespace), $"type_{MetadataTokens.GetToken(h):X8}", ".cs");
+				string fileName = GetFileNameForType(metadata.GetString(type.Namespace),
+					Settings.TokenizeNames ? $"type_{MetadataTokens.GetToken(h):X8}" : metadata.GetString(type.Name), ".cs");
 				string directory = Path.GetDirectoryName(fileName)!;
 				if (!string.IsNullOrEmpty(directory) && directories.Add(directory))
 					CreateDirectory(Path.Combine(TargetDirectory, directory));
