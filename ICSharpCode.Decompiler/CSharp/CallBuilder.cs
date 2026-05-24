@@ -624,7 +624,9 @@ namespace ICSharpCode.Decompiler.CSharp
 			}
 
 			Expression targetExpr;
-			string methodName = $"method_{MetadataTokens.GetToken(method.MetadataToken):X8}";
+			string methodName = settings.TokenizeNames
+				? $"method_{MetadataTokens.GetToken(method.MetadataToken):X8}"
+				: method.Name;
 			AstNodeCollection<AstType> typeArgumentList;
 			if ((transform & ReferenceTransformation.NoNamedArgsForPrettiness) != 0)
 			{
@@ -655,7 +657,9 @@ namespace ICSharpCode.Decompiler.CSharp
 				{
 					var interfaceMember = method.ExplicitlyImplementedInterfaceMembers.First();
 					var castExpression = new CastExpression(expressionBuilder.ConvertType(interfaceMember.DeclaringType), target.Expression.Detach());
-					methodName = $"method_{MetadataTokens.GetToken(interfaceMember.MetadataToken):X8}";
+					methodName = settings.TokenizeNames
+						? $"method_{MetadataTokens.GetToken(interfaceMember.MetadataToken):X8}"
+						: interfaceMember.Name;
 					targetExpr = new MemberReferenceExpression(castExpression, methodName);
 					typeArgumentList = ((MemberReferenceExpression)targetExpr).TypeArguments;
 				}
@@ -1555,7 +1559,9 @@ namespace ICSharpCode.Decompiler.CSharp
 			// expressions are built solely on the branches that put them in the output.
 			bool hasArguments = argumentList.GetActualArgumentCount() != 0;
 
-			string accessorTokenName = $"{(method.AccessorOwner.SymbolKind == SymbolKind.Property ? "prop" : "event")}_{MetadataTokens.GetToken(method.AccessorOwner.MetadataToken):X8}";
+			string accessorName = settings.TokenizeNames
+				? $"{(method.AccessorOwner.SymbolKind == SymbolKind.Property ? "prop" : "event")}_{MetadataTokens.GetToken(method.AccessorOwner.MetadataToken):X8}"
+				: method.AccessorOwner.Name;
 
 			if (isSetter)
 			{
@@ -1569,12 +1575,12 @@ namespace ICSharpCode.Decompiler.CSharp
 				}
 				else if (requireTarget)
 				{
-					expr = new MemberReferenceExpression(target.Expression, accessorTokenName)
+					expr = new MemberReferenceExpression(target.Expression, accessorName)
 						.WithoutILInstruction().WithRR(rr);
 				}
 				else
 				{
-					expr = new IdentifierExpression(accessorTokenName)
+					expr = new IdentifierExpression(accessorName)
 						.WithoutILInstruction().WithRR(rr);
 				}
 
@@ -1601,12 +1607,12 @@ namespace ICSharpCode.Decompiler.CSharp
 				}
 				else if (requireTarget)
 				{
-					return new MemberReferenceExpression(target.Expression, accessorTokenName)
+					return new MemberReferenceExpression(target.Expression, accessorName)
 						.WithoutILInstruction().WithRR(rr);
 				}
 				else
 				{
-					return new IdentifierExpression(accessorTokenName)
+					return new IdentifierExpression(accessorName)
 						.WithoutILInstruction().WithRR(rr);
 				}
 			}
@@ -1797,7 +1803,10 @@ namespace ICSharpCode.Decompiler.CSharp
 				var disambiguator = Disambiguator.ForMethodReference(expressionBuilder, method, targetType,
 					target, requireTarget: true, expectedTargetDetails, isExtensionMethodReference: true,
 					castTargetUpFront: thisArg!.MatchLdNull());
-				return (disambiguator.Target, disambiguator.RequireTypeArguments, $"method_{MetadataTokens.GetToken(method.MetadataToken):X8}", disambiguator.Result!);
+				string delegateMethodName = settings.TokenizeNames
+					? $"method_{MetadataTokens.GetToken(method.MetadataToken):X8}"
+					: method.Name;
+				return (disambiguator.Target, disambiguator.RequireTypeArguments, delegateMethodName, disambiguator.Result!);
 			}
 			else
 			{
@@ -1832,8 +1841,11 @@ namespace ICSharpCode.Decompiler.CSharp
 				}
 				// BuildDelegateReference tells a qualified reference from an unqualified one by
 				// whether it got a target expression at all.
+				string delegateMethodName = settings.TokenizeNames
+					? $"method_{MetadataTokens.GetToken(method.MetadataToken):X8}"
+					: method.Name;
 				return (disambiguator.RequireTarget ? disambiguator.Target : default,
-					disambiguator.RequireTypeArguments, $"method_{MetadataTokens.GetToken(method.MetadataToken):X8}", result!);
+					disambiguator.RequireTypeArguments, delegateMethodName, result!);
 			}
 		}
 
