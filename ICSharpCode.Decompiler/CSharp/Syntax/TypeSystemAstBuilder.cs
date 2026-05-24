@@ -308,6 +308,29 @@ namespace ICSharpCode.Decompiler.CSharp.Syntax
 			return type;
 		}
 
+		static string GetDisplayName(IType type)
+		{
+			if (type is ITypeParameter)
+				return type.Name;
+
+			if (type is TypeWithElementType typeWithElementType)
+				return GetDisplayName(typeWithElementType.ElementType) + typeWithElementType.NameSuffix;
+
+			if (type is ParameterizedType parameterizedType)
+				return GetDisplayName(parameterizedType.GenericType);
+
+			var typeDef = type.GetDefinition();
+			if (typeDef is IEntity entity && entity.ParentModule != null)
+			{
+				if (entity.ParentModule.Name.Contains("Assembly-CSharp"))
+				{
+					return $"type_{MetadataTokens.GetToken(entity.MetadataToken):X8}";
+				}
+			}
+
+			return type.Name;
+		}
+
 		AstType ConvertTypeHelper(IType type)
 		{
 			if (type is TypeWithElementType typeWithElementType)
@@ -538,7 +561,7 @@ namespace ICSharpCode.Decompiler.CSharp.Syntax
 					if (!trr!.IsError && TypeMatches(trr.Type, typeDef, typeArguments))
 					{
 						// We can use the short type name
-						SimpleType shortResult = MakeSimpleType(typeDef.Name);
+						SimpleType shortResult = MakeSimpleType(GetDisplayName(typeDef));
 						AddTypeArguments(shortResult, typeDef.TypeParameters, typeArguments, outerTypeParameterCount, typeDef.TypeParameterCount);
 						return shortResult;
 					}
@@ -547,7 +570,7 @@ namespace ICSharpCode.Decompiler.CSharp.Syntax
 
 			if (AlwaysUseShortTypeNames || (typeDef == null && genericType.DeclaringType == null))
 			{
-				var shortResult = MakeSimpleType(genericType.Name);
+				var shortResult = MakeSimpleType(GetDisplayName(genericType));
 				AddTypeArguments(shortResult, genericType.TypeParameters, typeArguments, outerTypeParameterCount, genericType.TypeParameterCount);
 				return shortResult;
 			}
@@ -578,7 +601,7 @@ namespace ICSharpCode.Decompiler.CSharp.Syntax
 						out _, AlwaysUseGlobal || genericType.Namespace == genericType.Name);
 				}
 			}
-			result.MemberName = genericType.Name;
+			result.MemberName = GetDisplayName(genericType);
 			AddTypeArguments(result, genericType.TypeParameters, typeArguments, outerTypeParameterCount, genericType.TypeParameterCount);
 			return result;
 		}
