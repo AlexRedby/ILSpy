@@ -2554,7 +2554,7 @@ namespace ICSharpCode.Decompiler.CSharp.Syntax
 		}
 		#endregion
 
-		static void AddDecompiledNameAttribute(AstNodeCollection<AttributeSection> attributes, string originalName)
+		internal static void AddDecompiledNameAttribute(AstNodeCollection<AttributeSection> attributes, string originalName)
 		{
 			var attr = new Attribute();
 			attr.Type = new SimpleType("DecompiledName");
