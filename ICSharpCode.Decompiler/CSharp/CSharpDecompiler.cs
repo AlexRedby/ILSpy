@@ -2717,7 +2717,7 @@ namespace ICSharpCode.Decompiler.CSharp
 					}
 					enumDec.Attributes.AddRange(field.GetAttributes().Select(a => new AttributeSection(typeSystemAstBuilder.ConvertAttribute(a))));
 					if (settings.TokenizeNames)
-						typeSystemAstBuilder.AddDecompiledNameAttribute(enumDec.Attributes, field.Name);
+						TypeSystemAstBuilder.AddDecompiledNameAttribute(enumDec.Attributes, field.Name);
 					enumDec.AddAnnotation(new MemberResolveResult(null, field));
 					return enumDec;
 				}
@@ -2734,7 +2734,7 @@ namespace ICSharpCode.Decompiler.CSharp
 					var fixedFieldDecl = new FixedFieldDeclaration();
 					fieldDecl.Attributes.MoveTo(fixedFieldDecl.Attributes);
 					if (settings.TokenizeNames)
-						typeSystemAstBuilder.AddDecompiledNameAttribute(fixedFieldDecl.Attributes, field.Name);
+						TypeSystemAstBuilder.AddDecompiledNameAttribute(fixedFieldDecl.Attributes, field.Name);
 					fixedFieldDecl.Modifiers = fieldDecl.Modifiers;
 					fixedFieldDecl.ReturnType = typeSystemAstBuilder.ConvertType(elementType);
 					string fixedFieldName = settings.TokenizeNames
