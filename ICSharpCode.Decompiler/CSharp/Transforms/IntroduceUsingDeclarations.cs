@@ -229,7 +229,8 @@ namespace ICSharpCode.Decompiler.CSharp.Transforms
 					UseNullableSpecifierForValueTypes = settings.LiftNullables,
 					AlwaysUseGlobal = settings.AlwaysUseGlobal,
 					AddResolveResultAnnotations = true,
-					UseAliases = true
+					UseAliases = true,
+					TokenizeNames = settings.TokenizeNames
 				};
 			}
 
