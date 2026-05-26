@@ -336,6 +336,17 @@ namespace ICSharpCode.Decompiler.CSharp.Syntax
 			return type.Name;
 		}
 
+		/// <summary>
+		/// Returns true if a member reference should use a metadata-token-based name
+		/// instead of its original name. Constructors and members from referenced
+		/// assemblies are excluded from tokenization.
+		/// </summary>
+		public static bool ShouldTokenizeMember(IModule targetModule, IEntity member)
+		{
+			if (member.Name is ".ctor" or ".cctor") return false;
+			return member.ParentModule == targetModule;
+		}
+
 		AstType ConvertTypeHelper(IType type)
 		{
 			if (type is TypeWithElementType typeWithElementType)

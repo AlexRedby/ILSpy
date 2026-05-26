@@ -538,7 +538,7 @@ namespace ICSharpCode.Decompiler.CSharp
 			}
 
 			Expression targetExpr;
-			string methodName = settings.TokenizeNames
+			string methodName = TypeSystemAstBuilder.ShouldTokenizeMember(typeSystem.MainModule, method)
 				? $"method_{MetadataTokens.GetToken(method.MetadataToken):X8}"
 				: method.Name;
 			AstNodeCollection<AstType> typeArgumentList;
@@ -561,7 +561,7 @@ namespace ICSharpCode.Decompiler.CSharp
 				{
 					var interfaceMember = method.ExplicitlyImplementedInterfaceMembers.First();
 					var castExpression = new CastExpression(expressionBuilder.ConvertType(interfaceMember.DeclaringType), target.Expression.Detach());
-					methodName = settings.TokenizeNames
+					methodName = TypeSystemAstBuilder.ShouldTokenizeMember(typeSystem.MainModule, method)
 						? $"method_{MetadataTokens.GetToken(interfaceMember.MetadataToken):X8}"
 						: interfaceMember.Name;
 					targetExpr = new MemberReferenceExpression(castExpression, methodName);
@@ -1686,7 +1686,7 @@ namespace ICSharpCode.Decompiler.CSharp
 
 			var rr = new MemberResolveResult(target.ResolveResult, foundMember);
 
-			string accessorName = settings.TokenizeNames
+			string accessorName = TypeSystemAstBuilder.ShouldTokenizeMember(typeSystem.MainModule, method.AccessorOwner)
 				? $"{(method.AccessorOwner.SymbolKind == SymbolKind.Property ? "prop" : "event")}_{MetadataTokens.GetToken(method.AccessorOwner.MetadataToken):X8}"
 				: method.AccessorOwner.Name;
 
@@ -1993,7 +1993,7 @@ namespace ICSharpCode.Decompiler.CSharp
 					}
 					break;
 				}
-			string delegateMethodName = settings.TokenizeNames
+			string delegateMethodName = TypeSystemAstBuilder.ShouldTokenizeMember(typeSystem.MainModule, method)
 				? $"method_{MetadataTokens.GetToken(method.MetadataToken):X8}"
 				: method.Name;
 			return (currentTarget, addTypeArguments, delegateMethodName, result);
@@ -2065,7 +2065,7 @@ namespace ICSharpCode.Decompiler.CSharp
 			{
 				result = mgrr.WithChosenMethod(method);
 			}
-			string delegateMethodName = settings.TokenizeNames
+			string delegateMethodName = TypeSystemAstBuilder.ShouldTokenizeMember(typeSystem.MainModule, method)
 				? $"method_{MetadataTokens.GetToken(method.MetadataToken):X8}"
 				: method.Name;
 			return (currentTarget, addTypeArguments, delegateMethodName, result);
