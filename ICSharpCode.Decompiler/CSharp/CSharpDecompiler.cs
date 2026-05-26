@@ -2238,8 +2238,8 @@ namespace ICSharpCode.Decompiler.CSharp
 				int lastDot = method.Name.LastIndexOf('.');
 				if (methodDecl is not OperatorDeclaration && method.IsExplicitInterfaceImplementation && lastDot >= 0)
 				{
-					if (settings.TokenizeNames)
-						methodDecl.Name = $"method_{MetadataTokens.GetToken(method.MetadataToken):X8}";
+				if (TypeSystemAstBuilder.ShouldTokenizeMember(module, method))
+					methodDecl.Name = $"method_{MetadataTokens.GetToken(method.MetadataToken):X8}";
 					else
 						methodDecl.Name = method.Name.Substring(lastDot + 1);
 				}
@@ -2695,7 +2695,7 @@ namespace ICSharpCode.Decompiler.CSharp
 				if (decompilationContext.CurrentTypeDefinition!.Kind == TypeKind.Enum && field.IsConst)
 				{
 					var enumDec = new EnumMemberDeclaration {
-						Name = settings.TokenizeNames
+						Name = TypeSystemAstBuilder.ShouldTokenizeMember(module, field)
 							? $"field_{MetadataTokens.GetToken(field.MetadataToken):X8}"
 							: field.Name
 					};
@@ -2716,8 +2716,8 @@ namespace ICSharpCode.Decompiler.CSharp
 						}
 					}
 					enumDec.Attributes.AddRange(field.GetAttributes().Select(a => new AttributeSection(typeSystemAstBuilder.ConvertAttribute(a))));
-					if (settings.TokenizeNames)
-						TypeSystemAstBuilder.AddDecompiledNameAttribute(enumDec.Attributes, field.Name);
+				if (TypeSystemAstBuilder.ShouldTokenizeMember(module, field))
+					TypeSystemAstBuilder.AddDecompiledNameAttribute(enumDec.Attributes, field.Name);
 					enumDec.AddAnnotation(new MemberResolveResult(null, field));
 					return enumDec;
 				}
@@ -2733,13 +2733,13 @@ namespace ICSharpCode.Decompiler.CSharp
 				{
 					var fixedFieldDecl = new FixedFieldDeclaration();
 					fieldDecl.Attributes.MoveTo(fixedFieldDecl.Attributes);
-					if (settings.TokenizeNames)
-						TypeSystemAstBuilder.AddDecompiledNameAttribute(fixedFieldDecl.Attributes, field.Name);
+				if (TypeSystemAstBuilder.ShouldTokenizeMember(module, field))
+					TypeSystemAstBuilder.AddDecompiledNameAttribute(fixedFieldDecl.Attributes, field.Name);
 					fixedFieldDecl.Modifiers = fieldDecl.Modifiers;
 					fixedFieldDecl.ReturnType = typeSystemAstBuilder.ConvertType(elementType);
-					string fixedFieldName = settings.TokenizeNames
-						? $"field_{MetadataTokens.GetToken(field.MetadataToken):X8}"
-						: field.Name;
+				string fixedFieldName = TypeSystemAstBuilder.ShouldTokenizeMember(module, field)
+					? $"field_{MetadataTokens.GetToken(field.MetadataToken):X8}"
+					: field.Name;
 					fixedFieldDecl.Variables.Add(new FixedVariableInitializer(fixedFieldName, new PrimitiveExpression(elementCount)));
 					fixedFieldDecl.Variables.Single().CopyAnnotationsFrom(((FieldDeclaration)fieldDecl).Variables.Single());
 					fixedFieldDecl.CopyAnnotationsFrom(fieldDecl);
@@ -2839,7 +2839,7 @@ namespace ICSharpCode.Decompiler.CSharp
 				if (property.IsExplicitInterfaceImplementation && !property.IsIndexer)
 				{
 					int lastDot = property.Name.LastIndexOf('.');
-					if (settings.TokenizeNames)
+					if (TypeSystemAstBuilder.ShouldTokenizeMember(module, property))
 					propertyDecl.Name = $"prop_{MetadataTokens.GetToken(property.MetadataToken):X8}";
 					else
 					propertyDecl.Name = property.Name.Substring(lastDot + 1);
@@ -2924,8 +2924,8 @@ namespace ICSharpCode.Decompiler.CSharp
 				int lastDot = ev.Name.LastIndexOf('.');
 				if (ev.IsExplicitInterfaceImplementation)
 				{
-					if (settings.TokenizeNames)
-						eventDecl.Name = $"event_{MetadataTokens.GetToken(ev.MetadataToken):X8}";
+				if (TypeSystemAstBuilder.ShouldTokenizeMember(module, ev))
+					eventDecl.Name = $"event_{MetadataTokens.GetToken(ev.MetadataToken):X8}";
 					else
 						eventDecl.Name = ev.Name.Substring(lastDot + 1);
 				}

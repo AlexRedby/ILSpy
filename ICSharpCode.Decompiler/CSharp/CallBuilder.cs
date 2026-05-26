@@ -624,7 +624,7 @@ namespace ICSharpCode.Decompiler.CSharp
 			}
 
 			Expression targetExpr;
-			string methodName = settings.TokenizeNames
+			string methodName = TypeSystemAstBuilder.ShouldTokenizeMember(typeSystem.MainModule, method)
 				? $"method_{MetadataTokens.GetToken(method.MetadataToken):X8}"
 				: method.Name;
 			AstNodeCollection<AstType> typeArgumentList;
@@ -657,7 +657,7 @@ namespace ICSharpCode.Decompiler.CSharp
 				{
 					var interfaceMember = method.ExplicitlyImplementedInterfaceMembers.First();
 					var castExpression = new CastExpression(expressionBuilder.ConvertType(interfaceMember.DeclaringType), target.Expression.Detach());
-					methodName = settings.TokenizeNames
+					methodName = TypeSystemAstBuilder.ShouldTokenizeMember(typeSystem.MainModule, method)
 						? $"method_{MetadataTokens.GetToken(interfaceMember.MetadataToken):X8}"
 						: interfaceMember.Name;
 					targetExpr = new MemberReferenceExpression(castExpression, methodName);
@@ -1559,7 +1559,7 @@ namespace ICSharpCode.Decompiler.CSharp
 			// expressions are built solely on the branches that put them in the output.
 			bool hasArguments = argumentList.GetActualArgumentCount() != 0;
 
-			string accessorName = settings.TokenizeNames
+			string accessorName = TypeSystemAstBuilder.ShouldTokenizeMember(typeSystem.MainModule, method.AccessorOwner)
 				? $"{(method.AccessorOwner.SymbolKind == SymbolKind.Property ? "prop" : "event")}_{MetadataTokens.GetToken(method.AccessorOwner.MetadataToken):X8}"
 				: method.AccessorOwner.Name;
 
@@ -1803,7 +1803,7 @@ namespace ICSharpCode.Decompiler.CSharp
 				var disambiguator = Disambiguator.ForMethodReference(expressionBuilder, method, targetType,
 					target, requireTarget: true, expectedTargetDetails, isExtensionMethodReference: true,
 					castTargetUpFront: thisArg!.MatchLdNull());
-				string delegateMethodName = settings.TokenizeNames
+				string delegateMethodName = settings.TokenizeNames && TypeSystemAstBuilder.ShouldTokenizeMember(typeSystem.MainModule, method)
 					? $"method_{MetadataTokens.GetToken(method.MetadataToken):X8}"
 					: method.Name;
 				return (disambiguator.Target, disambiguator.RequireTypeArguments, delegateMethodName, disambiguator.Result!);
@@ -1841,7 +1841,7 @@ namespace ICSharpCode.Decompiler.CSharp
 				}
 				// BuildDelegateReference tells a qualified reference from an unqualified one by
 				// whether it got a target expression at all.
-				string delegateMethodName = settings.TokenizeNames
+				string delegateMethodName = settings.TokenizeNames && TypeSystemAstBuilder.ShouldTokenizeMember(typeSystem.MainModule, method)
 					? $"method_{MetadataTokens.GetToken(method.MetadataToken):X8}"
 					: method.Name;
 				return (disambiguator.RequireTarget ? disambiguator.Target : default,

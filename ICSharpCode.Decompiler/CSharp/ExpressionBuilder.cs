@@ -398,7 +398,7 @@ namespace ICSharpCode.Decompiler.CSharp
 				mrr = new MemberResolveResult(target.ResolveResult, field);
 			}
 
-			string fieldName = settings.TokenizeNames
+			string fieldName = TypeSystemAstBuilder.ShouldTokenizeMember(typeSystem.MainModule, field)
 				? $"field_{MetadataTokens.GetToken(field.MetadataToken):X8}"
 				: field.Name;
 			var expr = requireTarget
