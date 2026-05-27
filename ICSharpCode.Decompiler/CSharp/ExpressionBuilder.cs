@@ -3534,7 +3534,7 @@ namespace ICSharpCode.Decompiler.CSharp
 						{
 							var value = Translate(info.Values.Single(), typeHint: memberRR.Type)
 								.ConvertTo(memberRR.Type, this, allowImplicitConversion: true);
-							var assignment = new NamedExpression(lastElement.Member.Name, value)
+							var assignment = new NamedExpression(GetMemberInitializerName(lastElement.Member), value)
 								.WithILInstruction(inst).WithRR(memberRR);
 							elementsStack.Peek().Add(assignment);
 						}
@@ -3562,6 +3562,23 @@ namespace ICSharpCode.Decompiler.CSharp
 				else
 					yield return inst;
 			}
+		}
+
+		string GetMemberInitializerName(IMember member)
+		{
+			if (astBuilder.TokenizeNames && TypeSystemAstBuilder.ShouldTokenizeMember(typeSystem.MainModule, member))
+			{
+				string prefix = member switch
+				{
+					IField => "field_",
+					IProperty => "prop_",
+					IEvent => "event_",
+					_ => null
+				};
+				if (prefix != null)
+					return $"{prefix}{MetadataTokens.GetToken(member.MetadataToken):X8}";
+			}
+			return member.Name;
 		}
 
 		TranslatedExpression MakeInitializerAssignment(InitializedObjectResolveResult rr, IL.Transforms.AccessPathElement memberPath,
@@ -3594,7 +3611,7 @@ namespace ICSharpCode.Decompiler.CSharp
 			}
 			else
 			{
-				return new NamedExpression(valuePath.Member.Name, value)
+				return new NamedExpression(GetMemberInitializerName(valuePath.Member), value)
 					.WithRR(new MemberResolveResult(rr, valuePath.Member))
 					.WithoutILInstruction();
 			}
