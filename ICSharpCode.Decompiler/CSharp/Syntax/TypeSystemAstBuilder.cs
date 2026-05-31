@@ -1971,8 +1971,6 @@ namespace ICSharpCode.Decompiler.CSharp.Syntax
 			if (ShowAttributes)
 			{
 				decl.Attributes.AddRange(ConvertAttributes(parameter.GetAttributes()));
-				if (TokenizeNames)
-					AddDecompiledNameAttribute(decl.Attributes, parameter.Name);
 			}
 			IType parameterType;
 			if (parameter.Type.Kind == TypeKind.ByReference)
@@ -2285,6 +2283,8 @@ namespace ICSharpCode.Decompiler.CSharp.Syntax
 			{
 				decl.Attributes.AddRange(ConvertAttributes(d.GetAttributes()));
 				decl.Attributes.AddRange(ConvertAttributes(invokeMethod.GetReturnTypeAttributes(), "return"));
+				if (TokenizeNames)
+					AddDecompiledNameAttribute(decl.Attributes, d.Name);
 			}
 			if (AddResolveResultAnnotations)
 			{
