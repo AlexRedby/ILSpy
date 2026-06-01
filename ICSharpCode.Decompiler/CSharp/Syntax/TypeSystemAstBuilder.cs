@@ -1493,7 +1493,8 @@ namespace ICSharpCode.Decompiler.CSharp.Syntax
 
 			Expression MakeEnumMemberReference(IField field)
 			{
-				string fieldName = TokenizeNames ? $"field_{MetadataTokens.GetToken(field.MetadataToken):X8}" : field.Name;
+				string fieldName = TokenizeNames && ShouldTokenizeMember(resolver?.Compilation?.MainModule, field)
+					? $"field_{MetadataTokens.GetToken(field.MetadataToken):X8}" : field.Name;
 				if (declaringEnumMember == null)
 				{
 					var mre = new MemberReferenceExpression(new TypeReferenceExpression(ConvertType(type)), fieldName);
