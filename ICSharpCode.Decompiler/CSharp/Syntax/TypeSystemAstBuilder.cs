@@ -1344,7 +1344,7 @@ namespace ICSharpCode.Decompiler.CSharp.Syntax
 			{
 				if (value == val)
 				{
-					var fieldTokenName = TokenizeNames ? $"field_{MetadataTokens.GetToken(field.MetadataToken):X8}" : field.Name;
+					var fieldTokenName = ShouldTokenizeMember(resolver?.Compilation?.MainModule, field) ? $"field_{MetadataTokens.GetToken(field.MetadataToken):X8}" : field.Name;
 					var mre = new MemberReferenceExpression(new TypeReferenceExpression(ConvertType(type)), fieldTokenName);
 					if (AddResolveResultAnnotations)
 						mre.AddAnnotation(new MemberResolveResult(mre.Target.GetResolveResult(), field));
@@ -1380,7 +1380,7 @@ namespace ICSharpCode.Decompiler.CSharp.Syntax
 
 					if ((fieldValue & enumValue) == fieldValue)
 					{
-						var fieldTokenName = TokenizeNames ? $"field_{MetadataTokens.GetToken(field.MetadataToken):X8}" : field.Name;
+						var fieldTokenName = ShouldTokenizeMember(resolver?.Compilation?.MainModule, field) ? $"field_{MetadataTokens.GetToken(field.MetadataToken):X8}" : field.Name;
 						var fieldExpression = new MemberReferenceExpression(new TypeReferenceExpression(ConvertType(type)), fieldTokenName);
 						if (expr == null)
 							expr = fieldExpression;
@@ -1391,7 +1391,7 @@ namespace ICSharpCode.Decompiler.CSharp.Syntax
 					}
 					if ((fieldValue & negatedEnumValue) == fieldValue)
 					{
-						var fieldTokenName = TokenizeNames ? $"field_{MetadataTokens.GetToken(field.MetadataToken):X8}" : field.Name;
+						var fieldTokenName = ShouldTokenizeMember(resolver?.Compilation?.MainModule, field) ? $"field_{MetadataTokens.GetToken(field.MetadataToken):X8}" : field.Name;
 						var fieldExpression = new MemberReferenceExpression(new TypeReferenceExpression(ConvertType(type)), fieldTokenName);
 						if (negatedExpr == null)
 							negatedExpr = fieldExpression;
