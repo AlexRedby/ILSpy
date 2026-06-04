@@ -159,6 +159,12 @@ namespace ICSharpCode.Decompiler.CSharp.Syntax
 		public bool TokenizeNames { get; set; }
 
 		/// <summary>
+		/// Gets or sets the target module used to determine whether a member should be tokenized.
+		/// When set, used as fallback when the resolver's compilation main module is not available.
+		/// </summary>
+		public IModule TargetModule { get; set; }
+
+		/// <summary>
 		/// Controls whether to show attributes.
 		/// The default value is <see langword="false" />.
 		/// </summary>
@@ -1493,7 +1499,7 @@ namespace ICSharpCode.Decompiler.CSharp.Syntax
 
 			Expression MakeEnumMemberReference(IField field)
 			{
-				string fieldName = TokenizeNames && ShouldTokenizeMember(resolver?.Compilation?.MainModule, field)
+				string fieldName = TokenizeNames && ShouldTokenizeMember(resolver?.Compilation?.MainModule ?? TargetModule, field)
 					? $"field_{MetadataTokens.GetToken(field.MetadataToken):X8}" : field.Name;
 				if (declaringEnumMember == null)
 				{

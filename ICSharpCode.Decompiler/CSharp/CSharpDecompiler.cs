@@ -832,7 +832,7 @@ namespace ICSharpCode.Decompiler.CSharp
 			return new DecompilerTypeSystem(file, resolver, settings);
 		}
 
-		static TypeSystemAstBuilder CreateAstBuilder(DecompilerSettings settings)
+		static TypeSystemAstBuilder CreateAstBuilder(DecompilerSettings settings, IModule mainModule = null)
 		{
 			var typeSystemAstBuilder = new TypeSystemAstBuilder();
 			typeSystemAstBuilder.ShowAttributes = true;
@@ -849,6 +849,7 @@ namespace ICSharpCode.Decompiler.CSharp
 			typeSystemAstBuilder.AlwaysUseGlobal = settings.AlwaysUseGlobal;
 			typeSystemAstBuilder.SupportExtensionDeclarations = settings.ExtensionMembers;
 			typeSystemAstBuilder.TokenizeNames = settings.TokenizeNames;
+			typeSystemAstBuilder.TargetModule = mainModule;
 			return typeSystemAstBuilder;
 		}
 
@@ -906,7 +907,7 @@ namespace ICSharpCode.Decompiler.CSharp
 			// position the halted step is highlighted at.
 			if (StepLimitHaltedFunction != null)
 				return;
-			var typeSystemAstBuilder = CreateAstBuilder(decompileRun.Settings);
+			var typeSystemAstBuilder = CreateAstBuilder(decompileRun.Settings, module);
 			var context = new TransformContext(typeSystem, decompileRun, decompilationContext, typeSystemAstBuilder);
 			// Off means off for the whole pipeline: leaving the AST half recording would give the same
 			// pipeline two numbering bases, and an index recorded under one of them means a different
@@ -984,14 +985,14 @@ namespace ICSharpCode.Decompiler.CSharp
 			{
 				foreach (var a in typeSystem.MainModule.GetAssemblyAttributes())
 				{
-					var astBuilder = CreateAstBuilder(decompileRun.Settings);
+					var astBuilder = CreateAstBuilder(decompileRun.Settings, module);
 					var attrSection = new AttributeSection(astBuilder.ConvertAttribute(a));
 					attrSection.AttributeTarget = "assembly";
 					syntaxTree.Members.Add(attrSection);
 				}
 				foreach (var a in typeSystem.MainModule.GetModuleAttributes())
 				{
-					var astBuilder = CreateAstBuilder(decompileRun.Settings);
+					var astBuilder = CreateAstBuilder(decompileRun.Settings, module);
 					var attrSection = new AttributeSection(astBuilder.ConvertAttribute(a));
 					attrSection.AttributeTarget = "module";
 					syntaxTree.Members.Add(attrSection);
@@ -1826,7 +1827,7 @@ namespace ICSharpCode.Decompiler.CSharp
 			TypeSystemAstBuilder typeSystemAstBuilder;
 			try
 			{
-				typeSystemAstBuilder = CreateAstBuilder(decompileRun.Settings);
+				typeSystemAstBuilder = CreateAstBuilder(decompileRun.Settings, module);
 				EntityDeclaration entityDecl;
 				if (asExtension)
 				{
@@ -2233,7 +2234,7 @@ namespace ICSharpCode.Decompiler.CSharp
 			DecompilerEventSource.Log.DecompileMemberStart(method, DecompiledMemberKind.Method);
 			try
 			{
-				var typeSystemAstBuilder = CreateAstBuilder(decompileRun.Settings);
+				var typeSystemAstBuilder = CreateAstBuilder(decompileRun.Settings, module);
 				var methodDecl = typeSystemAstBuilder.ConvertEntity(method);
 				int lastDot = method.Name.LastIndexOf('.');
 				if (methodDecl is not OperatorDeclaration && method.IsExplicitInterfaceImplementation && lastDot >= 0)
@@ -2691,7 +2692,7 @@ namespace ICSharpCode.Decompiler.CSharp
 			DecompilerEventSource.Log.DecompileMemberStart(field, DecompiledMemberKind.Field);
 			try
 			{
-				var typeSystemAstBuilder = CreateAstBuilder(decompileRun.Settings);
+				var typeSystemAstBuilder = CreateAstBuilder(decompileRun.Settings, module);
 				if (decompilationContext.CurrentTypeDefinition!.Kind == TypeKind.Enum && field.IsConst)
 				{
 					var enumDec = new EnumMemberDeclaration {
@@ -2834,7 +2835,7 @@ namespace ICSharpCode.Decompiler.CSharp
 			DecompilerEventSource.Log.DecompileMemberStart(property, DecompiledMemberKind.Property);
 			try
 			{
-				var typeSystemAstBuilder = CreateAstBuilder(decompileRun.Settings);
+				var typeSystemAstBuilder = CreateAstBuilder(decompileRun.Settings, module);
 				EntityDeclaration propertyDecl = typeSystemAstBuilder.ConvertEntity(property);
 				if (property.IsExplicitInterfaceImplementation && !property.IsIndexer)
 				{
@@ -2908,7 +2909,7 @@ namespace ICSharpCode.Decompiler.CSharp
 			{
 				bool adderHasBody = ev.CanAdd && ev.AddAccessor!.HasBody;
 				bool removerHasBody = ev.CanRemove && ev.RemoveAccessor!.HasBody;
-				var typeSystemAstBuilder = CreateAstBuilder(decompileRun.Settings);
+				var typeSystemAstBuilder = CreateAstBuilder(decompileRun.Settings, module);
 				IField? backingField = null;
 				bool isAutomaticEvent = adderHasBody && removerHasBody && decompileRun.Settings.AutomaticEvents
 					&& AutoEventDecompiler.IsAutomaticEvent(typeSystem, ev, decompileRun, CancellationToken, out backingField);
