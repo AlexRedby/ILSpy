@@ -47,6 +47,38 @@ internal sealed class ExtraUnsafeTests
 		return arr;
 	}
 
+	public unsafe static void UnusedPinnedArrayAtLoopTail(byte[] buffer, int count)
+	{
+		//The blocks IL_0004, IL_0006, IL_0025 are reachable both inside and outside the pinned region starting at IL_0020. ILSpy has duplicated these blocks in order to place them both within and outside the `fixed` statement.
+		int num = 0;
+		if (num >= count)
+		{
+			return;
+		}
+		byte[] array = buffer;
+		fixed (byte* ptr = array)
+		{
+			*ptr = 0;
+		}
+		while (true)
+		{
+			fixed (byte* ptr2 = buffer)
+			{
+				num++;
+				if (num < count)
+				{
+					array = buffer;
+					fixed (byte* ptr = array)
+					{
+						*ptr = 0;
+					}
+					continue;
+				}
+				break;
+			}
+		}
+	}
+
 	public unsafe void pin_ptr_test(int[] a, int[] b)
 	{
 		//The blocks IL_0016 are reachable both inside and outside the pinned region starting at IL_0007. ILSpy has duplicated these blocks in order to place them both within and outside the `fixed` statement.

@@ -246,6 +246,8 @@ namespace ICSharpCode.Decompiler.CSharp.ProjectDecompiler
 			string filePath = Path.Combine(prop, "_DecompiledNameAttribute.cs");
 			using (var w = CreateFile(Path.Combine(TargetDirectory, filePath)))
 			{
+				w.WriteLine("global using System.Runtime.CompilerServices;");
+				w.WriteLine();
 				w.WriteLine("using System;");
 				w.WriteLine();
 				w.WriteLine("namespace System.Runtime.CompilerServices");

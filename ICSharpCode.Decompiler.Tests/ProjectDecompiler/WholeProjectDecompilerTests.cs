@@ -68,6 +68,22 @@ public sealed class WholeProjectDecompilerTests
 		}
 	}
 
+	[Test]
+	public void TokenizeNamesEmitsGlobalUsingForDecompiledNameAttribute()
+	{
+		string targetDirectory = Path.Combine(Environment.CurrentDirectory, Path.GetRandomFileName());
+		TestFriendlyProjectDecompiler decompiler = new(new UniversalAssemblyResolver(null, false, null));
+		decompiler.Settings.TokenizeNames = true;
+		decompiler.DecompileProject(new PEFile("ICSharpCode.Decompiler.dll"), targetDirectory);
+		AssertDirectoryDoesntExist(targetDirectory);
+
+		string attributeFile = Path.Combine(targetDirectory, "Properties", "_DecompiledNameAttribute.cs");
+		Assert.That(
+			decompiler.Files[attributeFile].ToString(),
+			Does.StartWith("global using System.Runtime.CompilerServices;" + Environment.NewLine)
+		);
+	}
+
 	static void AssertDirectoryDoesntExist(string directory)
 	{
 		if (Directory.Exists(directory))
