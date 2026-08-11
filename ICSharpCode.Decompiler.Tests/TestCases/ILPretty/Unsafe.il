@@ -643,6 +643,65 @@ lbl:
 	  IL_0021: ret
   } // end of method Issue1292
 
+  .method public hidebysig static
+		  void UnusedPinnedArrayAtLoopTail (
+			  uint8[] buffer,
+			  int32 count
+		  ) cil managed
+  {
+	.maxstack 2
+	.locals init (
+		[0] int32,
+		[1] uint8*,
+		[2] uint8[] pinned
+	)
+
+	ldc.i4.0
+	stloc.0
+	br.s LOOP_TEST
+
+LOOP_BODY:
+	ldarg.0
+	dup
+	stloc.2
+	brfalse.s NULL_ARRAY
+
+	ldloc.2
+	ldlen
+	conv.i4
+	brtrue.s NON_EMPTY_ARRAY
+
+NULL_ARRAY:
+	ldc.i4.0
+	conv.u
+	stloc.1
+	br.s PINNED
+
+NON_EMPTY_ARRAY:
+	ldloc.2
+	ldc.i4.0
+	ldelema [CORE_ASSEMBLY]System.Byte
+	conv.u
+	stloc.1
+
+PINNED:
+	ldloc.1
+	ldc.i4.0
+	stind.i1
+	ldarg.0
+	stloc.2
+	ldloc.0
+	ldc.i4.1
+	add
+	stloc.0
+
+LOOP_TEST:
+	ldloc.0
+	ldarg.1
+	blt.s LOOP_BODY
+	ret
+  } // end of method UnusedPinnedArrayAtLoopTail
+
 .method /* 06000066 */ public hidebysig 
 	instance void pin_ptr_test (
 		int32[] a,

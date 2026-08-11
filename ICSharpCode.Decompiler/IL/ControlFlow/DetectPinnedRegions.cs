@@ -806,7 +806,23 @@ namespace ICSharpCode.Decompiler.IL.ControlFlow
 				}
 			}
 			if (ldloc == null)
+			{
+				// Obfuscated control flow can assign to a pinned array local without ever
+				// loading the resulting pointer. Keep the pin (and evaluation of the
+				// initializer), but use a synthetic pointer variable so that the emitted
+				// fixed statement is valid C#.
+				context.Step("Replace unused pinned array with native pointer", pinnedRegion);
+				ILVariable unusedArrayVar = pinnedRegion.Variable;
+				ILVariable unusedPointerVar = new ILVariable(
+					VariableKind.PinnedRegionLocal,
+					new PointerType(((ArrayType)unusedArrayVar.Type).ElementType));
+				unusedPointerVar.Name = unusedArrayVar.Name;
+				unusedPointerVar.HasGeneratedName = true;
+				unusedArrayVar.Function.Variables.Add(unusedPointerVar);
+				pinnedRegion.Variable = unusedPointerVar;
+				pinnedRegion.Init = new GetPinnableReference(pinnedRegion.Init, null).WithILRange(pinnedRegion.Init);
 				return;
+			}
 			if (!(ldloc.Parent is GetPinnableReference arrayToPointer))
 				return;
 			if (!(arrayToPointer.Parent is Conv conv && conv.Kind == ConversionKind.StopGCTracking))
