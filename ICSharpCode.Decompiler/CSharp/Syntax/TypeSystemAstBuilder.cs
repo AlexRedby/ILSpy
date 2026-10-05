@@ -335,7 +335,7 @@ namespace ICSharpCode.Decompiler.CSharp.Syntax
 			var typeDef = type.GetDefinition();
 			if (typeDef is IEntity entity && entity.ParentModule != null)
 			{
-				if (TokenizeNames && entity.ParentModule.Name.Contains("Assembly-CSharp"))
+				if (TokenizeNames && entity.ParentModule == (resolver?.Compilation?.MainModule ?? TargetModule))
 				{
 					return $"type_{MetadataTokens.GetToken(entity.MetadataToken):X8}";
 				}
