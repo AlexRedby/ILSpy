@@ -166,6 +166,14 @@ public sealed class ArrayInitializationTests
 	}
 
 	[Test]
+	public void LargeFactoryInitializerKeepsInitializeArray()
+	{
+		string code = Decompile(BuildAssembly(ArrayKind.Byte, new byte[1025], requestedLength: 1025));
+
+		Assert.That(code, Does.Contain("RuntimeHelpers.InitializeArray"));
+	}
+
+	[Test]
 	public void CustomNaNPayloadKeepsInitializeArray()
 	{
 		string code = Decompile(BuildAssembly(ArrayKind.Single, Blob(unchecked((int)0x7FC01234), 0, 0)));

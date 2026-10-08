@@ -970,6 +970,9 @@ namespace ICSharpCode.Decompiler.IL.Transforms
 					return false;
 			}
 			if (!MatchArrayAllocationFactory(allocation, out var elementType, out int length)
+				// Unlike an array literal, this emits one statement per element. Keep large
+				// binary blobs compact instead of inflating all subsequent AST transforms.
+				|| length > 1024
 				|| !field.HasFlag(System.Reflection.FieldAttributes.HasFieldRVA))
 				return false;
 			if (!inlineAllocation && !array.Type.Equals(allocation.InferType(context.TypeSystem)))
