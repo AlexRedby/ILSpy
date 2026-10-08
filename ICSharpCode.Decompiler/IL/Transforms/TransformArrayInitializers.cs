@@ -47,6 +47,8 @@ namespace ICSharpCode.Decompiler.IL.Transforms
 					return;
 				if (DoTransformMultiDim(context.Function, block, pos))
 					return;
+				if (DoTransformFactoryAllocatedArray(block, pos))
+					return;
 				if (context.Settings.StackAllocInitializers && DoTransformStackAllocInitializer(block, pos))
 					return;
 				if (DoTransformInlineRuntimeHelpersInitializeArray(block, pos))
@@ -935,9 +937,122 @@ namespace ICSharpCode.Decompiler.IL.Transforms
 			array = call.Arguments[0];
 			if (!call.Arguments[1].MatchLdMemberToken(out var member))
 				return false;
-			if (member.MetadataToken.IsNil)
+			if (member is not IField || member.ParentModule != context.TypeSystem.MainModule
+				|| member.MetadataToken.Kind != HandleKind.FieldDefinition)
 				return false;
 			field = context.PEFile.Metadata.GetFieldDefinition((FieldDefinitionHandle)member.MetadataToken);
+			return true;
+		}
+
+		bool DoTransformFactoryAllocatedArray(Block body, int pos)
+		{
+			var inst = body.Instructions[pos];
+			ILVariable array;
+			ILInstruction allocation;
+			FieldDefinition field;
+			int initPos;
+			bool inlineAllocation;
+			if (inst.MatchStLoc(out array, out allocation))
+			{
+				initPos = pos + 1;
+				inlineAllocation = false;
+				if (initPos >= body.Instructions.Count
+					|| !MatchInitializeArrayCall(body.Instructions[initPos], out var arrayInst, out field)
+					|| !arrayInst.MatchLdLoc(array))
+					return false;
+			}
+			else
+			{
+				initPos = pos;
+				inlineAllocation = true;
+				array = null;
+				if (!MatchInitializeArrayCall(inst, out allocation, out field))
+					return false;
+			}
+			if (!MatchArrayAllocationFactory(allocation, out var elementType, out int length)
+				|| !field.HasFlag(System.Reflection.FieldAttributes.HasFieldRVA))
+				return false;
+			if (!inlineAllocation && !array.Type.Equals(allocation.InferType(context.TypeSystem)))
+				return false;
+			var values = new List<ILInstruction>();
+			try
+			{
+				if (!DecodeArrayInitializer(elementType, field.GetInitialValue(context.PEFile, context.TypeSystem), new[] { length }, values))
+					return false;
+			}
+			catch (BadImageFormatException ex)
+			{
+				context.Function.Warnings.Add($"IL_{body.Instructions[initPos].ILRanges.FirstOrDefault().Start:x4}: {ex.Message}");
+				return false;
+			}
+			// C# literals cannot preserve arbitrary NaN payloads or non-canonical bool bytes.
+			for (int i = 0; i < values.Count; i += 2)
+			{
+				if (values[i] is LdcF4 f4 && float.IsNaN(f4.Value)
+					|| values[i] is LdcF8 f8 && double.IsNaN(f8.Value)
+					|| elementType.IsKnownType(KnownTypeCode.Boolean) && values[i] is LdcI4 b && b.Value is not (0 or 1))
+					return false;
+			}
+			context.Step("Recover factory-allocated array contents", inst);
+			var initializeCall = body.Instructions[initPos];
+			body.Instructions.RemoveAt(initPos);
+			if (inlineAllocation)
+			{
+				array = context.Function.RegisterVariable(VariableKind.Local, allocation.InferType(context.TypeSystem));
+				var store = new StLoc(array, allocation);
+				store.AddILRange(initializeCall);
+				body.Instructions.Insert(initPos++, store);
+			}
+			// Retain the factory call: its type initializer and method flags can have effects
+			// even when its IL body contains only an allocation.
+			for (int i = 0; i < values.Count; i += 2)
+			{
+				var store = StElem(new LdLoc(array), new[] { values[i + 1] }, values[i], elementType);
+				store.AddILRange(initializeCall);
+				body.Instructions.Insert(initPos++, store);
+			}
+			context.EndStep(body.Instructions[pos]);
+			context.RequestRerun(initPos - 1);
+			return true;
+		}
+
+		bool MatchArrayAllocationFactory(ILInstruction allocation, out IType elementType, out int length)
+		{
+			elementType = null;
+			length = 0;
+			if (allocation is not Call call || !call.Method.IsStatic || call.Arguments.Count != 1
+				|| call.Method.Parameters.Count != 1 || !call.Method.Parameters[0].Type.IsKnownType(KnownTypeCode.Int32)
+				|| !call.Arguments[0].MatchLdcI4(out length) || length <= 0
+				|| call.Method.ReturnType is not ArrayType { Dimensions: 1 } arrayType
+				|| call.Method.ParentModule != context.TypeSystem.MainModule
+				|| call.Method.MetadataToken.Kind != HandleKind.MethodDefinition)
+				return false;
+			var handle = (MethodDefinitionHandle)call.Method.MetadataToken;
+			var method = context.PEFile.Metadata.GetMethodDefinition(handle);
+			if (!method.HasBody())
+				return false;
+			try
+			{
+				var body = context.PEFile.GetMethodBody(method.RelativeVirtualAddress);
+				if (body.ExceptionRegions.Length != 0)
+					return false;
+				var function = context.CreateILReader().ReadIL(handle, body, new GenericContext(call.Method),
+					ILFunctionKind.TopLevelFunction, context.CancellationToken);
+				function.RunTransforms(CSharp.CSharpDecompiler.EarlyILTransforms(), new ILTransformContext(context, function));
+				if (function.Warnings.Count != 0 || function.Body is not BlockContainer container || container.Blocks.Count != 1
+					|| container.Blocks[0].Instructions.Count != 1
+					|| !container.Blocks[0].Instructions[0].MatchLeave(container, out var returnValue)
+					|| returnValue is not NewArr newArr || newArr.Indices.Count != 1
+					|| !newArr.Indices[0].MatchLdLoc(out var parameter)
+					|| parameter.Kind != VariableKind.Parameter || parameter.Index != 0
+					|| !newArr.Type.AcceptVisitor(call.Method.Substitution).Equals(arrayType.ElementType))
+					return false;
+			}
+			catch (BadImageFormatException)
+			{
+				return false;
+			}
+			elementType = arrayType.ElementType;
 			return true;
 		}
 
@@ -1044,11 +1159,18 @@ namespace ICSharpCode.Decompiler.IL.Transforms
 			List<ILInstruction> output, TypeCode elementType, ValueDecoder decoder)
 		{
 			int elementSize = ElementSizeOf(elementType);
-			var totalLength = arrayLength.Aggregate(1, (t, l) => t * l);
-			if (initialValue.RemainingBytes < (totalLength * elementSize))
+			int totalLength = 1;
+			foreach (int dimension in arrayLength)
+			{
+				if (dimension < 0 || dimension != 0 && totalLength > int.MaxValue / dimension)
+					return false;
+				totalLength *= dimension;
+			}
+			long outputLength = (long)totalLength * (arrayLength.Length + 1L);
+			if (initialValue.RemainingBytes < (long)totalLength * elementSize || outputLength > int.MaxValue)
 				return false;
 
-			output.EnsureCapacity(totalLength + totalLength * arrayLength.Length);
+			output.EnsureCapacity((int)outputLength);
 
 			for (int i = 0; i < totalLength; i++)
 			{
