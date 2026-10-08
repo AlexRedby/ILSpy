@@ -305,6 +305,23 @@ public sealed class WholeProjectDecompilerTests
 		);
 	}
 
+	[Test]
+	public void TokenizeNamesAttributeFailureDoesNotAbortExport()
+	{
+		string targetDirectory = Path.Combine(Environment.CurrentDirectory, Path.GetRandomFileName());
+		TestFriendlyProjectDecompiler decompiler = new(new UniversalAssemblyResolver(null, false, null));
+		decompiler.Settings.TokenizeNames = true;
+		decompiler.FailFileCreationFor = new[] { "_DecompiledNameAttribute.cs" };
+		using var assembly = CreateAssemblyWithResources();
+		using var module = new PEFile("Test.dll", assembly);
+		StringWriter project = new();
+		decompiler.DecompileProject(module, targetDirectory, project);
+		AssertDirectoryDoesntExist(targetDirectory);
+		Assert.That(decompiler.Errors.Select(e => e.InnerException?.Message),
+			Is.EquivalentTo(new[] { TestFriendlyProjectDecompiler.FileCreationFailure + "_DecompiledNameAttribute.cs" }));
+		Assert.That(project.ToString(), Does.Contain("<Project"));
+	}
+
 	static void AssertDirectoryDoesntExist(string directory)
 	{
 		if (Directory.Exists(directory))

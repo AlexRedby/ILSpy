@@ -624,7 +624,7 @@ namespace ICSharpCode.Decompiler.CSharp
 			}
 
 			Expression targetExpr;
-			string methodName = TypeSystemAstBuilder.ShouldTokenizeMember(typeSystem.MainModule, method)
+			string methodName = settings.TokenizeNames && TypeSystemAstBuilder.ShouldTokenizeMember(typeSystem.MainModule, method)
 				? $"method_{MetadataTokens.GetToken(method.MetadataToken):X8}"
 				: method.Name;
 			AstNodeCollection<AstType> typeArgumentList;
@@ -657,7 +657,7 @@ namespace ICSharpCode.Decompiler.CSharp
 				{
 					var interfaceMember = method.ExplicitlyImplementedInterfaceMembers.First();
 					var castExpression = new CastExpression(expressionBuilder.ConvertType(interfaceMember.DeclaringType), target.Expression.Detach());
-					methodName = TypeSystemAstBuilder.ShouldTokenizeMember(typeSystem.MainModule, method)
+					methodName = settings.TokenizeNames && TypeSystemAstBuilder.ShouldTokenizeMember(typeSystem.MainModule, interfaceMember)
 						? $"method_{MetadataTokens.GetToken(interfaceMember.MetadataToken):X8}"
 						: interfaceMember.Name;
 					targetExpr = new MemberReferenceExpression(castExpression, methodName);
@@ -1368,7 +1368,9 @@ namespace ICSharpCode.Decompiler.CSharp
 			{
 				targetExpression = firstArgument.Expression;
 			}
-			memberRef = new MemberReferenceExpression(targetExpression, method.Name);
+			string methodName = settings.TokenizeNames && TypeSystemAstBuilder.ShouldTokenizeMember(typeSystem.MainModule, method)
+				? $"method_{MetadataTokens.GetToken(method.MetadataToken):X8}" : method.Name;
+			memberRef = new MemberReferenceExpression(targetExpression, methodName);
 			if (writeTypeArguments)
 			{
 				memberRef.TypeArguments.AddRange(method.TypeArguments.Select(expressionBuilder.ConvertType));
@@ -1559,7 +1561,7 @@ namespace ICSharpCode.Decompiler.CSharp
 			// expressions are built solely on the branches that put them in the output.
 			bool hasArguments = argumentList.GetActualArgumentCount() != 0;
 
-			string accessorName = TypeSystemAstBuilder.ShouldTokenizeMember(typeSystem.MainModule, method.AccessorOwner)
+			string accessorName = settings.TokenizeNames && TypeSystemAstBuilder.ShouldTokenizeMember(typeSystem.MainModule, method.AccessorOwner)
 				? $"{(method.AccessorOwner.SymbolKind == SymbolKind.Property ? "prop" : "event")}_{MetadataTokens.GetToken(method.AccessorOwner.MetadataToken):X8}"
 				: method.AccessorOwner.Name;
 

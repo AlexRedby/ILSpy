@@ -395,21 +395,10 @@ namespace ICSharpCode.Decompiler
 		[DecompilerSetting(DefaultValue = false)]
 		public partial bool AlwaysCastTargetsOfExplicitInterfaceImplementationCalls { get; set; }
 
-		bool tokenizeNames = false;
-
 		[Category("Deobfuscation")]
 		[Description("Replace all member and type names with metadata-token-based identifiers (field_XXXXXXXX, method_XXXXXXXX, type_XXXXXXXX, etc.) and emit [DecompiledName] attributes.")]
-		public bool TokenizeNames {
-			get { return tokenizeNames; }
-			set
-			{
-				if (tokenizeNames != value)
-				{
-					tokenizeNames = value;
-					OnPropertyChanged();
-				}
-			}
-		}
+		[DecompilerSetting(DefaultValue = false)]
+		public partial bool TokenizeNames { get; set; }
 
 		/// <summary>
 		/// Gets/Sets whether to always qualify member references.

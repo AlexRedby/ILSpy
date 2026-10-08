@@ -820,7 +820,7 @@ namespace ICSharpCode.Decompiler.IL.ControlFlow
 				unusedPointerVar.HasGeneratedName = true;
 				unusedArrayVar.Function.Variables.Add(unusedPointerVar);
 				pinnedRegion.Variable = unusedPointerVar;
-				pinnedRegion.Init = new GetPinnableReference(pinnedRegion.Init, null).WithILRange(pinnedRegion.Init);
+				pinnedRegion.Init = new GetPinnableReference(pinnedRegion.Init, ((ArrayType)unusedArrayVar.Type).ElementType, null).WithILRange(pinnedRegion.Init);
 				return;
 			}
 			if (!(ldloc.Parent is GetPinnableReference arrayToPointer))

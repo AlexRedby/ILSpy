@@ -267,7 +267,7 @@ namespace ICSharpCode.Decompiler.CSharp.ProjectDecompiler
 				codeFileCount = files.Count;
 				files.AddRange(resources);
 				if (Settings.TokenizeNames)
-					files.AddRange(WriteDecompiledNameAttributeFile());
+					files.AddRange(RecordingErrors(WriteDecompiledNameAttributeFile(), file, "decompiled-name attribute"));
 				var module = file as PEFile;
 				if (module != null)
 				{
@@ -372,7 +372,7 @@ namespace ICSharpCode.Decompiler.CSharp.ProjectDecompiler
 				w.WriteLine("    }");
 				w.WriteLine("}");
 			}
-			return new[] { new ProjectItemInfo("Compile", filePath) };
+			yield return new ProjectItemInfo("Compile", filePath);
 		}
 
 		IEnumerable<ProjectItemInfo> WriteCodeFilesInProject(MetadataFile module, IList<PartialTypeInfo> partialTypes, CancellationToken cancellationToken)

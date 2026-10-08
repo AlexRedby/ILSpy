@@ -162,7 +162,7 @@ namespace ICSharpCode.Decompiler.CSharp.Syntax
 		/// Gets or sets the target module used to determine whether a member should be tokenized.
 		/// When set, used as fallback when the resolver's compilation main module is not available.
 		/// </summary>
-		public IModule TargetModule { get; set; }
+		public IModule? TargetModule { get; set; }
 
 		/// <summary>
 		/// Controls whether to show attributes.
@@ -349,9 +349,10 @@ namespace ICSharpCode.Decompiler.CSharp.Syntax
 		/// instead of its original name. Constructors and members from referenced
 		/// assemblies are excluded from tokenization.
 		/// </summary>
-		public static bool ShouldTokenizeMember(IModule targetModule, IEntity member)
+		public static bool ShouldTokenizeMember(IModule? targetModule, IEntity member)
 		{
-			if (member.Name is ".ctor" or ".cctor") return false;
+			if (member.Name is ".ctor" or ".cctor")
+				return false;
 			return member.ParentModule == targetModule;
 		}
 

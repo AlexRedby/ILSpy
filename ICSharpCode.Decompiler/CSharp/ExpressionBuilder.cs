@@ -340,9 +340,10 @@ namespace ICSharpCode.Decompiler.CSharp
 					memberDeclaringType: ev.DeclaringType);
 				bool requireEventTarget = RequiresQualifier(ev, eventTarget);
 				var eventResolveResult = new MemberResolveResult(eventTarget.ResolveResult, ev);
+				string eventName = GetMemberName(ev);
 				Expression eventReference = requireEventTarget
-					? new MemberReferenceExpression(eventTarget, ev.Name)
-					: new IdentifierExpression(ev.Name);
+					? new MemberReferenceExpression(eventTarget, eventName)
+					: new IdentifierExpression(eventName);
 				return eventReference.WithRR(eventResolveResult);
 			}
 
@@ -398,9 +399,7 @@ namespace ICSharpCode.Decompiler.CSharp
 				mrr = new MemberResolveResult(target.ResolveResult, field);
 			}
 
-			string fieldName = TypeSystemAstBuilder.ShouldTokenizeMember(typeSystem.MainModule, field)
-				? $"field_{MetadataTokens.GetToken(field.MetadataToken):X8}"
-				: field.Name;
+			string fieldName = GetMemberName(field);
 			var expr = requireTarget
 				? new MemberReferenceExpression(target, fieldName).WithRR(mrr)
 				: new IdentifierExpression(fieldName).WithRR(mrr);
@@ -3800,7 +3799,7 @@ namespace ICSharpCode.Decompiler.CSharp
 						{
 							var value = Translate(info.Values!.Single(), typeHint: memberRR.Type)
 								.ConvertTo(memberRR.Type, this, allowImplicitConversion: true);
-							var assignment = new NamedExpression(GetMemberInitializerName(lastElement.Member), value)
+							var assignment = new NamedExpression(GetMemberName(lastElement.Member), value)
 								.WithILInstruction(inst).WithRR(memberRR);
 							elementsStack.Peek().Add(assignment);
 						}
@@ -3830,15 +3829,15 @@ namespace ICSharpCode.Decompiler.CSharp
 			}
 		}
 
-		string GetMemberInitializerName(IMember member)
+		string GetMemberName(IMember member)
 		{
 			if (astBuilder.TokenizeNames && TypeSystemAstBuilder.ShouldTokenizeMember(typeSystem.MainModule, member))
 			{
-				string prefix = member switch
-				{
+				string? prefix = member switch {
 					IField => "field_",
 					IProperty => "prop_",
 					IEvent => "event_",
+					IMethod => "method_",
 					_ => null
 				};
 				if (prefix != null)
@@ -3877,7 +3876,7 @@ namespace ICSharpCode.Decompiler.CSharp
 			}
 			else
 			{
-				return new NamedExpression(GetMemberInitializerName(valuePath.Member), value)
+				return new NamedExpression(GetMemberName(valuePath.Member), value)
 					.WithRR(new MemberResolveResult(rr, valuePath.Member))
 					.WithoutILInstruction();
 			}
@@ -5165,7 +5164,7 @@ namespace ICSharpCode.Decompiler.CSharp
 			var classType = astBuilder.ConvertType(inst.Member.DeclaringType);
 			var mre = new MemberReferenceExpression(
 				new TypeReferenceExpression(classType),
-				inst.Member.Name
+				GetMemberName(inst.Member)
 			);
 			Expression memberExpr = mre.WithRR(new MemberResolveResult(null, inst.Member));
 			if (inst.Member is IMethod method)
