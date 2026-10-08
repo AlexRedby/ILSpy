@@ -126,6 +126,8 @@ namespace ICSharpCode.Decompiler.IL
 		LdStrUtf8,
 		/// <summary>Loads a constant 32-bit integer.</summary>
 		LdcI4,
+		/// <summary>Loads constant array data as a ReadOnlySpan&lt;T&gt;.</summary>
+		LdArrayData,
 		/// <summary>Loads a constant 64-bit integer.</summary>
 		LdcI8,
 		/// <summary>Loads a constant 32-bit floating-point number.</summary>
@@ -2954,6 +2956,38 @@ namespace ICSharpCode.Decompiler.IL
 		{
 			var o = other as LdcI4;
 			return o != null && this.Value == o.Value;
+		}
+	}
+}
+namespace ICSharpCode.Decompiler.IL
+{
+	/// <summary>Loads constant array data as a ReadOnlySpan&lt;T&gt;.</summary>
+	public sealed partial class LdArrayData : SimpleInstruction
+	{
+		IType type;
+		/// <summary>Returns the type operand.</summary>
+		public IType Type {
+			get { return type; }
+			set { type = value; InvalidateFlags(); }
+		}
+		public override StackType ResultType => StackType.VT;
+		public override IType InferType(ICompilation compilation) => new ParameterizedType(compilation.FindType(KnownTypeCode.ReadOnlySpanOfT), this.type);
+		public override void AcceptVisitor(ILVisitor visitor)
+		{
+			visitor.VisitLdArrayData(this);
+		}
+		public override T AcceptVisitor<T>(ILVisitor<T> visitor)
+		{
+			return visitor.VisitLdArrayData(this);
+		}
+		public override T AcceptVisitor<C, T>(ILVisitor<C, T> visitor, C context)
+		{
+			return visitor.VisitLdArrayData(this, context);
+		}
+		protected internal override bool PerformMatch(ILInstruction? other, ref Patterns.Match match)
+		{
+			var o = other as LdArrayData;
+			return o != null && type.Equals(o.type) && this.Length == o.Length && this.Data.SequenceEqual(o.Data);
 		}
 	}
 }
@@ -7312,6 +7346,10 @@ namespace ICSharpCode.Decompiler.IL
 		{
 			Default(inst);
 		}
+		protected internal virtual void VisitLdArrayData(LdArrayData inst)
+		{
+			Default(inst);
+		}
 		protected internal virtual void VisitLdcI8(LdcI8 inst)
 		{
 			Default(inst);
@@ -7719,6 +7757,10 @@ namespace ICSharpCode.Decompiler.IL
 			return Default(inst);
 		}
 		protected internal virtual T VisitLdcI4(LdcI4 inst)
+		{
+			return Default(inst);
+		}
+		protected internal virtual T VisitLdArrayData(LdArrayData inst)
 		{
 			return Default(inst);
 		}
@@ -8132,6 +8174,10 @@ namespace ICSharpCode.Decompiler.IL
 		{
 			return Default(inst, context);
 		}
+		protected internal virtual T VisitLdArrayData(LdArrayData inst, C context)
+		{
+			return Default(inst, context);
+		}
 		protected internal virtual T VisitLdcI8(LdcI8 inst, C context)
 		{
 			return Default(inst, context);
@@ -8408,6 +8454,7 @@ namespace ICSharpCode.Decompiler.IL
 			"ldstr",
 			"ldstr.utf8",
 			"ldc.i4",
+			"ldarray.data",
 			"ldc.i8",
 			"ldc.f4",
 			"ldc.f8",
@@ -8703,6 +8750,17 @@ namespace ICSharpCode.Decompiler.IL
 				return true;
 			}
 			value = default(int);
+			return false;
+		}
+		public bool MatchLdArrayData([NotNullWhen(true)] out IType? type)
+		{
+			var inst = this as LdArrayData;
+			if (inst != null)
+			{
+				type = inst.Type;
+				return true;
+			}
+			type = null;
 			return false;
 		}
 		public bool MatchLdcI8(out long value)

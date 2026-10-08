@@ -395,19 +395,15 @@ namespace ICSharpCode.Decompiler.CSharp.Syntax
 						resume = pos;
 					else
 						resume = list.IndexOf(next);
-					// Runtime guard against the cursor mislocating: the chosen index must equal the
-					// authoritative identity position (also -1 == -1 when the successor was removed). It
-					// holds for every mutation the body can make today, and the decompiler test suite runs
-					// it after every transform, so a future change that lets the cursor skip or re-yield an
-					// element fails loudly here instead of silently corrupting the output.
-					Debug.Assert(resume == list.IndexOf(next),
-						"AstNodeCollection enumerator lost track of its position during a mid-enumeration mutation.");
 					if (resume < 0)
 					{
 						current = null;
 						next = null;
 						return false;
 					}
+					// Verify the identity at the chosen position without searching the list again.
+					Debug.Assert(resume < list.Count && ReferenceEquals(list[resume], next),
+						"AstNodeCollection enumerator lost track of its position during a mid-enumeration mutation.");
 					pos = resume;
 				}
 				current = list[pos];

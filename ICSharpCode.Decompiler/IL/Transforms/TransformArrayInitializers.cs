@@ -970,13 +970,62 @@ namespace ICSharpCode.Decompiler.IL.Transforms
 					return false;
 			}
 			if (!MatchArrayAllocationFactory(allocation, out var elementType, out int length)
-				// Unlike an array literal, this emits one statement per element. Keep large
-				// binary blobs compact instead of inflating all subsequent AST transforms.
-				|| length > 1024
 				|| !field.HasFlag(System.Reflection.FieldAttributes.HasFieldRVA))
 				return false;
 			if (!inlineAllocation && !array.Type.Equals(allocation.InferType(context.TypeSystem)))
 				return false;
+			if (length > 1024)
+			{
+				var spanType = new ParameterizedType(context.TypeSystem.FindType(KnownTypeCode.SpanOfT), elementType);
+				var readOnlySpanType = new ParameterizedType(context.TypeSystem.FindType(KnownTypeCode.ReadOnlySpanOfT), elementType);
+				var arrayType = new ArrayType(context.TypeSystem, elementType);
+				var copyTo = readOnlySpanType.GetMethods(m => !m.IsStatic && m.Name == "CopyTo").Where(m =>
+					m.Parameters.Count == 1 && NormalizeTypeVisitor.IgnoreNullability.EquivalentTypes(m.Parameters[0].Type, spanType)
+					&& m.ReturnType.IsKnownType(KnownTypeCode.Void)).ToArray();
+				var arrayToSpan = spanType.GetMethods(m => m.IsStatic && m.Name == "op_Implicit").Where(m =>
+					m.Parameters.Count == 1 && NormalizeTypeVisitor.IgnoreNullability.EquivalentTypes(m.Parameters[0].Type, arrayType)
+					&& m.ReturnType.Equals(spanType)).ToArray();
+				if (copyTo.Length != 1 || arrayToSpan.Length != 1
+					|| !readOnlySpanType.GetMethods(m => m.IsStatic && m.Name == "op_Implicit").Any(m =>
+						m.Parameters.Count == 1 && NormalizeTypeVisitor.IgnoreNullability.EquivalentTypes(m.Parameters[0].Type, arrayType)
+						&& m.ReturnType.Equals(readOnlySpanType)))
+					return false;
+				ImmutableArray<byte> data;
+				try
+				{
+					var initialValue = field.GetInitialValue(context.PEFile, context.TypeSystem);
+					if (!ValidateConstantArrayData(elementType, initialValue, length, out int byteCount))
+						return false;
+					data = ImmutableArray.CreateRange(initialValue.ReadBytes(byteCount));
+				}
+				catch (BadImageFormatException ex)
+				{
+					context.Function.Warnings.Add($"IL_{body.Instructions[initPos].ILRanges.FirstOrDefault().Start:x4}: {ex.Message}");
+					return false;
+				}
+				context.Step("Recover compact factory-allocated array contents", inst);
+				var originalCall = body.Instructions[initPos];
+				if (inlineAllocation)
+				{
+					array = context.Function.RegisterVariable(VariableKind.Local, allocation.InferType(context.TypeSystem));
+					var store = new StLoc(array, allocation);
+					store.AddILRange(originalCall);
+					body.Instructions.Insert(initPos++, store);
+				}
+				// A span over constant data retains the factory allocation without another
+				// large array or per-element statements in the IL transform pipeline.
+				var copy = new Call(copyTo[0]) {
+					Arguments = {
+						new AddressOf(new LdArrayData(elementType, data, length), readOnlySpanType),
+						new Call(arrayToSpan[0]) { Arguments = { new LdLoc(array) } }
+					}
+				};
+				copy.AddILRange(originalCall);
+				body.Instructions[initPos] = copy;
+				context.EndStep(body.Instructions[pos]);
+				context.RequestRerun(initPos);
+				return true;
+			}
 			var values = new List<ILInstruction>();
 			try
 			{
@@ -1120,7 +1169,7 @@ namespace ICSharpCode.Decompiler.IL.Transforms
 			return true;
 		}
 
-		static bool DecodeArrayInitializer(IType type, BlobReader initialValue, int[] arrayLength, List<ILInstruction> output)
+		internal static bool DecodeArrayInitializer(IType type, BlobReader initialValue, int[] arrayLength, List<ILInstruction> output)
 		{
 			TypeCode typeCode = ReflectionHelper.GetTypeCode(type);
 			switch (typeCode)
@@ -1157,6 +1206,29 @@ namespace ICSharpCode.Decompiler.IL.Transforms
 		}
 
 		delegate ILInstruction ValueDecoder(ref BlobReader reader);
+
+		static bool ValidateConstantArrayData(IType type, BlobReader initialValue, int length, out int byteCount)
+		{
+			var typeCode = ReflectionHelper.GetTypeCode(type.GetEnumUnderlyingType());
+			byteCount = 0;
+			if (typeCode < TypeCode.Boolean || typeCode > TypeCode.Double)
+				return false;
+			int elementSize = ElementSizeOf(typeCode);
+			if (elementSize <= 0 || length <= 0 || length > initialValue.RemainingBytes / elementSize)
+				return false;
+			byteCount = length * elementSize;
+			if (typeCode is not (TypeCode.Boolean or TypeCode.Single or TypeCode.Double))
+				return true;
+			// Non-canonical bool values and NaN payloads cannot be reproduced by literals.
+			for (int i = 0; i < length; i++)
+			{
+				if (typeCode == TypeCode.Boolean && initialValue.ReadByte() > 1
+					|| typeCode == TypeCode.Single && float.IsNaN(initialValue.ReadSingle())
+					|| typeCode == TypeCode.Double && double.IsNaN(initialValue.ReadDouble()))
+					return false;
+			}
+			return true;
+		}
 
 		static bool DecodeArrayInitializer(BlobReader initialValue, int[] arrayLength,
 			List<ILInstruction> output, TypeCode elementType, ValueDecoder decoder)

@@ -165,12 +165,103 @@ public sealed class ArrayInitializationTests
 		Assert.That(code, Does.Contain("RuntimeHelpers.InitializeArray"));
 	}
 
-	[Test]
-	public void LargeFactoryInitializerKeepsInitializeArray()
+	[TestCase(1025)]
+	[TestCase(172328)]
+	[TestCase(235243)]
+	public void LargeFactoryInitializerRecoversInitializer(int length)
 	{
-		string code = Decompile(BuildAssembly(ArrayKind.Byte, new byte[1025], requestedLength: 1025));
+		byte[] bytes = Enumerable.Range(0, length).Select(i => unchecked((byte)(i * 37 + i / 256))).ToArray();
+		AssertRoundtrip(ArrayKind.Byte, bytes, length);
+	}
+
+	[TestCase(ArrayKind.Int32)]
+	[TestCase(ArrayKind.UInt16)]
+	[TestCase(ArrayKind.Boolean)]
+	[TestCase(ArrayKind.Char)]
+	[TestCase(ArrayKind.Single)]
+	[TestCase(ArrayKind.Double)]
+	[TestCase(ArrayKind.Enum)]
+	public void LargePrimitiveFactoryContentsRoundtrip(ArrayKind kind)
+	{
+		byte[] pattern = kind is ArrayKind.Int32 or ArrayKind.Enum ? Blob(1, 5, 9) : BlobFor(kind);
+		byte[] bytes = Enumerable.Range(0, 1025 * (pattern.Length / 3)).Select(i => pattern[i % pattern.Length]).ToArray();
+		AssertRoundtrip(kind, bytes, 1025);
+	}
+
+	[Test]
+	public void LargeInlineFactoryAllocationRecoversInitializer()
+	{
+		string code = Decompile(BuildAssembly(ArrayKind.Byte, new byte[1025], requestedLength: 1025, inlineInitialization: true));
+
+		Assert.That(code.Contains("ArrayFactory.Create(1025)"), Is.True, "The factory call must remain.");
+		Assert.That(code.Contains("RuntimeHelpers.InitializeArray"), Is.False, "The initializer must be recovered.");
+		Assert.That(code.Contains("__ldtoken"), Is.False, "The field-token intrinsic must be removed.");
+	}
+
+	[Test]
+	public void LargeDirectNewArrayContentsRoundtrip()
+	{
+		byte[] bytes = Enumerable.Range(0, 1025).Select(i => unchecked((byte)i)).ToArray();
+		AssertRoundtrip(ArrayKind.Byte, bytes, 1025, directAllocation: true);
+	}
+
+	[Test]
+	public void DisabledArrayInitializersKeepsLargeInitializeArray()
+	{
+		string code = Decompile(BuildAssembly(ArrayKind.Byte, new byte[1025], requestedLength: 1025), arrayInitializers: false);
+
+		Assert.That(code.Contains("RuntimeHelpers.InitializeArray"), Is.True, "Disabled initializers must preserve the runtime call.");
+		Assert.That(code.Contains("__ldtoken"), Is.True, "The fallback must retain its field token.");
+	}
+
+	[Test]
+	public void LargeNonCanonicalBooleanBytesKeepInitializeArray()
+	{
+		byte[] bytes = Enumerable.Repeat((byte)1, 1025).ToArray();
+		bytes[1024] = 2;
+		string code = Decompile(BuildAssembly(ArrayKind.Boolean, bytes, requestedLength: 1025));
+
+		Assert.That(code.Contains("RuntimeHelpers.InitializeArray"), Is.True, "Noncanonical Boolean data must preserve the runtime call.");
+		Assert.That(code.Contains("__ldtoken"), Is.True, "The fallback must retain its field token.");
+	}
+
+	[Test]
+	public void LargeCustomNaNPayloadKeepsInitializeArray()
+	{
+		int[] values = new int[1025];
+		values[1024] = unchecked((int)0x7FC01234);
+		string code = Decompile(BuildAssembly(ArrayKind.Single, Blob(values), requestedLength: 1025));
+
+		Assert.That(code.Contains("RuntimeHelpers.InitializeArray"), Is.True, "A noncanonical NaN payload must preserve the runtime call.");
+		Assert.That(code.Contains("__ldtoken"), Is.True, "The fallback must retain its field token.");
+	}
+
+	[Test]
+	public void LargeShortRvaKeepsInitializeArray()
+	{
+		string code = Decompile(BuildAssembly(ArrayKind.Byte, new byte[1024], requestedLength: 1025));
 
 		Assert.That(code, Does.Contain("RuntimeHelpers.InitializeArray"));
+		Assert.That(code, Does.Contain("__ldtoken"));
+	}
+
+	[TestCase(FactoryKind.Cached)]
+	[TestCase(FactoryKind.SideEffecting)]
+	public void LargeArbitraryFactoryKeepsInitializeArray(FactoryKind factoryKind)
+	{
+		string code = Decompile(BuildAssembly(ArrayKind.Byte, new byte[1025], factoryKind, requestedLength: 1025));
+
+		Assert.That(code, Does.Contain("RuntimeHelpers.InitializeArray"));
+		Assert.That(code, Does.Contain("__ldtoken"));
+	}
+
+	[Test]
+	public void LargeDynamicLengthKeepsInitializeArray()
+	{
+		string code = Decompile(BuildAssembly(ArrayKind.Byte, new byte[1025], dynamicLength: true));
+
+		Assert.That(code, Does.Contain("RuntimeHelpers.InitializeArray"));
+		Assert.That(code, Does.Contain("__ldtoken"));
 	}
 
 	[Test]
@@ -204,21 +295,34 @@ public sealed class ArrayInitializationTests
 		AssertRoundtrip(kind, kind is ArrayKind.Int32 or ArrayKind.Enum ? Blob(1, 5, 9) : BlobFor(kind));
 	}
 
-	static void AssertRoundtrip(ArrayKind kind, byte[] initialValue)
+	static void AssertRoundtrip(ArrayKind kind, byte[] initialValue, int length = 3, bool directAllocation = false)
 	{
-		using var fixture = BuildAssembly(kind, initialValue, synchronizedFactory: true, factoryCctor: true);
+		using var fixture = BuildAssembly(kind, initialValue, synchronizedFactory: true, factoryCctor: true,
+			requestedLength: length, directAllocation: directAllocation);
 		using var original = new MemoryStream();
 		fixture.Write(original);
 		original.Position = 0;
 		string code = Decompile(new MemoryStream(original.ToArray()), wholeModule: true);
-		Assert.That(code, Does.Not.Contain("RuntimeHelpers.InitializeArray"));
+		Assert.That(code.Contains($"ArrayFactory.Create({length})"), Is.EqualTo(!directAllocation), "The allocation must retain its original producer.");
+		Assert.That(code.Contains("RuntimeHelpers.InitializeArray"), Is.False, "The initializer must be recovered.");
+		Assert.That(code.Contains("__ldtoken"), Is.False, "The field-token intrinsic must be removed.");
 		var references = ((string)AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES")).Split(Path.PathSeparator)
 			.Select(path => MetadataReference.CreateFromFile(path));
 		var compilation = CSharpCompilation.Create("ArrayRecompiled", new[] { CSharpSyntaxTree.ParseText(code) }, references,
 			new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary, allowUnsafe: true));
 		using var recompiled = new MemoryStream();
 		var result = compilation.Emit(recompiled);
-		Assert.That(result.Success, Is.True, () => string.Join(Environment.NewLine, result.Diagnostics) + Environment.NewLine + code);
+		Assert.That(result.Success, Is.True, () => string.Join(Environment.NewLine, result.Diagnostics));
+		if (length > 1024)
+		{
+			using var metadata = Cecil.AssemblyDefinition.ReadAssembly(new MemoryStream(recompiled.ToArray()));
+			var instructions = metadata.MainModule.GetType("ArrayFixture").Methods.Single(m => m.Name == "Read").Body.Instructions;
+			Assert.That(instructions.Count(i => i.OpCode == OpCodes.Newarr), Is.EqualTo(directAllocation ? 1 : 0));
+			Assert.That(instructions.Count(i => i.Operand is Cecil.MethodReference method
+				&& method.DeclaringType.Name == "ArrayFactory" && method.Name == "Create"), Is.EqualTo(directAllocation ? 0 : 1));
+			Assert.That(metadata.MainModule.GetType("ArrayFactory").Methods.Single(m => m.Name == "Create")
+				.Body.Instructions.Count(i => i.OpCode == OpCodes.Newarr), Is.EqualTo(1));
+		}
 		var originalContext = new AssemblyLoadContext("ArrayOriginal", isCollectible: true);
 		var recompiledContext = new AssemblyLoadContext("ArrayRecompiled", isCollectible: true);
 		try
@@ -231,19 +335,29 @@ public sealed class ArrayInitializationTests
 			var read = recompiledAssembly.GetType("ArrayFixture").GetMethod("Read");
 			var actual = (Array)read.Invoke(null, null);
 			Assert.That(actual.Length, Is.EqualTo(expected.Length));
-			for (int i = 0; i < expected.Length; i++)
+			if (kind == ArrayKind.Byte)
+				Assert.That(actual, Is.EqualTo(initialValue));
+			else
 			{
-				object expectedValue = expected.GetValue(i), actualValue = actual.GetValue(i);
-				if (kind == ArrayKind.Single)
-					Assert.That(BitConverter.SingleToInt32Bits((float)actualValue), Is.EqualTo(BitConverter.SingleToInt32Bits((float)expectedValue)));
-				else if (kind == ArrayKind.Double)
-					Assert.That(BitConverter.DoubleToInt64Bits((double)actualValue), Is.EqualTo(BitConverter.DoubleToInt64Bits((double)expectedValue)));
-				else if (kind == ArrayKind.Enum)
-					Assert.That(Convert.ToInt32(actualValue), Is.EqualTo(Convert.ToInt32(expectedValue)));
-				else
-					Assert.That(actualValue, Is.EqualTo(expectedValue));
+				for (int i = 0; i < expected.Length; i++)
+				{
+					object expectedValue = expected.GetValue(i), actualValue = actual.GetValue(i);
+					if (kind == ArrayKind.Single)
+						Assert.That(BitConverter.SingleToInt32Bits((float)actualValue), Is.EqualTo(BitConverter.SingleToInt32Bits((float)expectedValue)));
+					else if (kind == ArrayKind.Double)
+						Assert.That(BitConverter.DoubleToInt64Bits((double)actualValue), Is.EqualTo(BitConverter.DoubleToInt64Bits((double)expectedValue)));
+					else if (kind == ArrayKind.Enum)
+						Assert.That(Convert.ToInt32(actualValue), Is.EqualTo(Convert.ToInt32(expectedValue)));
+					else
+						Assert.That(actualValue, Is.EqualTo(expectedValue));
+				}
 			}
-			Assert.That(read.Invoke(null, null), Is.Not.SameAs(actual));
+			if (kind == ArrayKind.Byte)
+				((byte[])actual)[0] ^= 0xFF;
+			var second = (Array)read.Invoke(null, null);
+			Assert.That(second, Is.Not.SameAs(actual));
+			if (kind == ArrayKind.Byte)
+				Assert.That(second, Is.EqualTo(initialValue));
 			var factory = recompiledAssembly.GetType("ArrayFactory");
 			Assert.That(factory.GetField("Counter", BindingFlags.NonPublic | BindingFlags.Static).GetValue(null), Is.EqualTo(1));
 			Assert.That(factory.GetMethod("Create", BindingFlags.NonPublic | BindingFlags.Static).GetMethodImplementationFlags()
@@ -274,23 +388,23 @@ public sealed class ArrayInitializationTests
 		};
 	}
 
-	static string Decompile(Cecil.AssemblyDefinition assembly)
+	static string Decompile(Cecil.AssemblyDefinition assembly, bool arrayInitializers = true)
 	{
 		using (assembly)
 		{
 			using var stream = new MemoryStream();
 			assembly.Write(stream);
 			stream.Position = 0;
-			return Decompile(stream);
+			return Decompile(stream, arrayInitializers: arrayInitializers);
 		}
 	}
 
-	static string Decompile(Stream stream, bool wholeModule = false)
+	static string Decompile(Stream stream, bool wholeModule = false, bool arrayInitializers = true)
 	{
 		using var peFile = new PEFile("ArrayInitialization.dll", stream);
 		var resolver = new UniversalAssemblyResolver(null, false, $".NETCoreApp,Version=v{Environment.Version.Major}.0");
 		resolver.AddSearchDirectory(Path.GetDirectoryName(typeof(object).Assembly.Location));
-		var decompiler = new CSharpDecompiler(peFile, resolver, new DecompilerSettings());
+		var decompiler = new CSharpDecompiler(peFile, resolver, new DecompilerSettings { ArrayInitializers = arrayInitializers });
 		return wholeModule ? decompiler.DecompileWholeModuleAsString() : decompiler.DecompileTypeAsString(new FullTypeName("ArrayFixture"));
 	}
 

@@ -716,6 +716,46 @@ namespace ICSharpCode.Decompiler.CSharp
 				.WithRR(new ConstantResolveResult(type, inst.Value));
 		}
 
+		protected internal override unsafe TranslatedExpression VisitLdArrayData(LdArrayData inst, TranslationContext context)
+		{
+			var values = new List<ILInstruction>();
+			fixed (byte* bytes = inst.Data.AsSpan())
+			{
+				if (!TransformArrayInitializers.DecodeArrayInitializer(inst.Type,
+					new BlobReader(bytes, inst.Data.Length), new[] { inst.Length }, values))
+					throw new ArgumentException("Invalid constant array data.", nameof(inst));
+			}
+			var initializer = new ArrayInitializerExpression();
+			var resolveResults = new List<ResolveResult>(inst.Length);
+			var old = astBuilder.UseSpecialConstants;
+			try
+			{
+				astBuilder.UseSpecialConstants = !inst.Type.IsCSharpPrimitiveIntegerType();
+				for (int i = 0; i < values.Count; i += 2)
+				{
+					cancellationToken.ThrowIfCancellationRequested();
+					var value = Translate(values[i], typeHint: inst.Type).ConvertTo(inst.Type, this, allowImplicitConversion: true);
+					initializer.Elements.Add(value);
+					resolveResults.Add(value.ResolveResult);
+				}
+			}
+			finally
+			{
+				astBuilder.UseSpecialConstants = old;
+			}
+			var arrayType = new ArrayType(compilation, inst.Type);
+			var array = new ArrayCreateExpression { Type = ConvertType(inst.Type), Initializer = initializer };
+			array.AdditionalArraySpecifiers.Add(new ArraySpecifier());
+			var arrayRR = new ArrayCreateResolveResult(arrayType, new[] {
+				new ConstantResolveResult(compilation.FindType(KnownTypeCode.Int32), inst.Length)
+			}, resolveResults);
+			array.WithRR(arrayRR);
+			var spanType = inst.InferType(compilation);
+			return new CastExpression(ConvertType(spanType), array)
+				.WithILInstruction(inst)
+				.WithRR(new ConversionResolveResult(spanType, arrayRR, Conversion.ImplicitSpanConversion));
+		}
+
 		protected internal override TranslatedExpression VisitLdNull(LdNull inst, TranslationContext context)
 		{
 			return GetDefaultValueExpression(SpecialType.NullType).WithILInstruction(inst);
