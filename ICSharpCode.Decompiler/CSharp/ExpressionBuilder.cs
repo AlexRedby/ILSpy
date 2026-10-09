@@ -2433,7 +2433,29 @@ namespace ICSharpCode.Decompiler.CSharp
 					}
 					else
 					{
-						goto default;
+						// Read the object reference without introducing pinning that was absent in the IL.
+						// Always read native width, even when the conversion subsequently widens to 64 bits.
+						var integerType = compilation.FindType(inst.TargetType.GetSign() == Sign.Signed ? KnownTypeCode.IntPtr : KnownTypeCode.UIntPtr);
+						if (inputType.Kind == TypeKind.Null)
+						{
+							inputType = compilation.FindType(KnownTypeCode.Object);
+							arg = arg.ConvertTo(inputType, this);
+						}
+						var referenceType = new ByReferenceType(inputType);
+						if (inst.Argument is LdLoc ldloc && arg.Expression is IdentifierExpression
+							&& !ldloc.Variable.IsRefReadOnly
+							&& ldloc.Variable.Kind != VariableKind.ForeachLocal
+							&& ldloc.Variable.Kind != VariableKind.UsingLocal)
+						{
+							arg = WrapInRef(arg, referenceType);
+						}
+						else
+						{
+							// Omitting 'in' permits a temporary for non-addressable expressions.
+							arg = CallUnsafeIntrinsic("AsRef", [arg], referenceType, typeArguments: [inputType]);
+						}
+						return CallUnsafeIntrinsic("As", [arg], integerType, typeArguments: [inputType, integerType])
+							.ConvertTo(GetType(inst.TargetType.ToKnownTypeCode()), this).WithILInstruction(inst);
 					}
 				case ConversionKind.SignExtend:
 					// We just need to ensure the input type before the conversion is signed.
