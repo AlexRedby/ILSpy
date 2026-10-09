@@ -63,6 +63,9 @@ jobs:
     - name: Add msbuild to PATH
       uses: microsoft/setup-msbuild@v3
 
+    - name: Verify build script exit codes
+      run: ./BuildTools/test-build-exit-code.ps1
+
     - name: Install dotnet-format
       env:
         DOTNET_FORMAT_VERSION: 10.0.100-rtm.25531.102
