@@ -24,6 +24,7 @@ using System.Runtime.CompilerServices;
 using System.Runtime.Loader;
 
 using ICSharpCode.Decompiler.CSharp;
+using ICSharpCode.Decompiler.CSharp.Syntax;
 using ICSharpCode.Decompiler.Metadata;
 using ICSharpCode.Decompiler.TypeSystem;
 
@@ -32,6 +33,7 @@ using Microsoft.CodeAnalysis.CSharp;
 
 using NUnit.Framework;
 
+using Accessibility = ICSharpCode.Decompiler.TypeSystem.Accessibility;
 using Cecil = Mono.Cecil;
 using OpCodes = Mono.Cecil.Cil.OpCodes;
 
@@ -295,10 +297,110 @@ public sealed class ArrayInitializationTests
 		AssertRoundtrip(kind, kind is ArrayKind.Int32 or ArrayKind.Enum ? Blob(1, 5, 9) : BlobFor(kind));
 	}
 
-	static void AssertRoundtrip(ArrayKind kind, byte[] initialValue, int length = 3, bool directAllocation = false)
+	[TestCase(false, false)]
+	[TestCase(false, true)]
+	[TestCase(true, false)]
+	[TestCase(true, true)]
+	public void RvaCarrierAccessibilityOnlyWidensEmittedDeclaration(bool tokenize, bool shared)
+	{
+		using var fixture = BuildAssembly(ArrayKind.Byte, BlobFor(ArrayKind.Byte));
+		MakeNestedRvaCarrier(fixture, CarrierShape.Rva, shared);
+		using var stream = new MemoryStream();
+		fixture.Write(stream);
+		stream.Position = 0;
+		using var peFile = new PEFile("ArrayInitialization.dll", stream);
+		var resolver = new UniversalAssemblyResolver(null, false, $".NETCoreApp,Version=v{Environment.Version.Major}.0");
+		resolver.AddSearchDirectory(Path.GetDirectoryName(typeof(object).Assembly.Location));
+		var decompiler = new CSharpDecompiler(peFile, resolver, new DecompilerSettings { TokenizeNames = tokenize });
+		var owner = decompiler.TypeSystem.MainModule.TypeDefinitions.Single(t => t.Name == "ArrayFixture");
+		var carrier = owner.NestedTypes.Single();
+		var metadata = peFile.Metadata.GetTypeDefinition((System.Reflection.Metadata.TypeDefinitionHandle)carrier.MetadataToken);
+		Assert.That(metadata.Attributes & TypeAttributes.VisibilityMask, Is.EqualTo(TypeAttributes.NestedPrivate));
+		Assert.That(metadata.GetLayout().PackingSize, Is.EqualTo(1));
+		Assert.That(metadata.GetLayout().Size, Is.EqualTo(3));
+		var tree = decompiler.DecompileWholeModuleAsSingleFile();
+		string carrierName = tokenize ? $"type_{fixture.MainModule.GetType("ArrayFixture").NestedTypes.Single().MetadataToken.ToInt32():X8}" : "BlobData";
+		var declaration = tree.Descendants.OfType<TypeDeclaration>().Single(t => t.Name == carrierName);
+		Assert.That(declaration.Modifiers, Is.EqualTo(Modifiers.Internal));
+		Assert.That(carrier.Accessibility, Is.EqualTo(Accessibility.Private), "C# projection must not mutate the type system.");
+		Assert.That(declaration.ToString(), Does.Contain("LayoutKind.Explicit, Pack = 1, Size = 3"));
+		var fields = tree.Descendants.OfType<FieldDeclaration>().Where(f => f.ReturnType.ToString() == carrierName).ToArray();
+		Assert.That(fields, Has.Length.EqualTo(shared ? 2 : 1));
+		Assert.That(fields.All(f => f.Modifiers == (Modifiers.Internal | Modifiers.Static | Modifiers.Readonly)), Is.True);
+		Assert.That(owner.Fields.All(f => f.Accessibility == Accessibility.Internal && f.IsStatic && f.IsReadOnly), Is.True);
+	}
+
+	[TestCase(CarrierShape.NonRva)]
+	[TestCase(CarrierShape.PrivateField)]
+	[TestCase(CarrierShape.Nonempty)]
+	[TestCase(CarrierShape.NonemptyMethod)]
+	[TestCase(CarrierShape.NonReadonly)]
+	[TestCase(CarrierShape.Sequential)]
+	public void RvaCarrierAccessibilityLeavesOtherShapesPrivate(CarrierShape shape)
+	{
+		using var fixture = BuildAssembly(ArrayKind.Byte, BlobFor(ArrayKind.Byte));
+		MakeNestedRvaCarrier(fixture, shape);
+		using var stream = new MemoryStream();
+		fixture.Write(stream);
+		stream.Position = 0;
+		string code = Decompile(stream, wholeModule: true);
+		Assert.That(code, Does.Contain("private struct BlobData"));
+		Assert.That(code, Does.Not.Contain("internal struct BlobData"));
+	}
+
+	[TestCase(false)]
+	[TestCase(true)]
+	public void RvaCarrierAccessibilityWholeModuleRoundtrips(bool shared)
+	{
+		AssertRoundtrip(ArrayKind.Byte, BlobFor(ArrayKind.Byte), nestedRvaCarrier: true, sharedCarrier: shared);
+	}
+
+	static void MakeNestedRvaCarrier(Cecil.AssemblyDefinition fixture, CarrierShape shape, bool shared = false)
+	{
+		var module = fixture.MainModule;
+		var owner = module.GetType("ArrayFixture");
+		owner.IsPublic = false;
+		var carrier = module.GetType("BlobData");
+		module.Types.Remove(carrier);
+		carrier.Attributes = Cecil.TypeAttributes.NestedPrivate | Cecil.TypeAttributes.ExplicitLayout | Cecil.TypeAttributes.Sealed;
+		owner.NestedTypes.Add(carrier);
+		var field = owner.Fields.Single();
+		field.Attributes = Cecil.FieldAttributes.Assembly | Cecil.FieldAttributes.Static | Cecil.FieldAttributes.InitOnly | Cecil.FieldAttributes.HasFieldRVA;
+		switch (shape)
+		{
+			case CarrierShape.NonRva:
+				field.InitialValue = Array.Empty<byte>();
+				field.Attributes &= ~Cecil.FieldAttributes.HasFieldRVA;
+				break;
+			case CarrierShape.PrivateField:
+				field.IsPrivate = true;
+				break;
+			case CarrierShape.Nonempty:
+				carrier.Fields.Add(new Cecil.FieldDefinition("Value", Cecil.FieldAttributes.Public, module.TypeSystem.Byte) { Offset = 0 });
+				break;
+			case CarrierShape.NonemptyMethod:
+				var method = new Cecil.MethodDefinition("Touch", Cecil.MethodAttributes.Public | Cecil.MethodAttributes.Static, module.TypeSystem.Void);
+				method.Body.Instructions.Add(Cecil.Cil.Instruction.Create(OpCodes.Ret));
+				carrier.Methods.Add(method);
+				break;
+			case CarrierShape.NonReadonly:
+				field.IsInitOnly = false;
+				break;
+			case CarrierShape.Sequential:
+				carrier.IsSequentialLayout = true;
+				break;
+		}
+		if (shared)
+			owner.Fields.Add(new Cecil.FieldDefinition("SecondBlob", field.Attributes, carrier) { InitialValue = field.InitialValue.ToArray() });
+	}
+
+	static void AssertRoundtrip(ArrayKind kind, byte[] initialValue, int length = 3, bool directAllocation = false,
+		bool nestedRvaCarrier = false, bool sharedCarrier = false)
 	{
 		using var fixture = BuildAssembly(kind, initialValue, synchronizedFactory: true, factoryCctor: true,
 			requestedLength: length, directAllocation: directAllocation);
+		if (nestedRvaCarrier)
+			MakeNestedRvaCarrier(fixture, CarrierShape.Rva, sharedCarrier);
 		using var original = new MemoryStream();
 		fixture.Write(original);
 		original.Position = 0;
@@ -556,5 +658,16 @@ public sealed class ArrayInitializationTests
 		Pure,
 		Cached,
 		SideEffecting
+	}
+
+	public enum CarrierShape
+	{
+		Rva,
+		NonRva,
+		PrivateField,
+		Nonempty,
+		NonemptyMethod,
+		NonReadonly,
+		Sequential
 	}
 }

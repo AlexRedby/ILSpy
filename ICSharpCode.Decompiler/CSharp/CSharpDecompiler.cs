@@ -1818,6 +1818,24 @@ namespace ICSharpCode.Decompiler.CSharp
 			}
 		}
 
+		bool IsPrivateRvaStorageType(ITypeDefinition typeDef)
+		{
+			if (typeDef.Kind != TypeKind.Struct || typeDef.Accessibility != Accessibility.Private
+				|| !typeDef.IsSealed || typeDef.TypeParameterCount != 0
+				|| typeDef.DeclaringTypeDefinition == null || typeDef.MetadataToken.Kind != HandleKind.TypeDefinition)
+				return false;
+			var definition = metadata.GetTypeDefinition((TypeDefinitionHandle)typeDef.MetadataToken);
+			if ((definition.Attributes & System.Reflection.TypeAttributes.LayoutMask) != System.Reflection.TypeAttributes.ExplicitLayout
+				|| definition.GetLayout().Size <= 0 || definition.GetFields().Count != 0
+				|| definition.GetMethods().Count != 0 || definition.GetProperties().Count != 0
+				|| definition.GetEvents().Count != 0 || definition.GetNestedTypes().Any())
+				return false;
+			return typeDef.DeclaringTypeDefinition.Fields.Any(field =>
+				field.Accessibility == Accessibility.Internal && field.IsStatic && field.IsReadOnly
+				&& field.ReturnType.GetDefinition() == typeDef && field.MetadataToken.Kind == HandleKind.FieldDefinition
+				&& metadata.GetFieldDefinition((FieldDefinitionHandle)field.MetadataToken).HasFlag(System.Reflection.FieldAttributes.HasFieldRVA));
+		}
+
 		EntityDeclaration DoDecompile(ITypeDefinition typeDef, DecompileRun decompileRun, ITypeResolveContext decompilationContext, bool asExtension = false)
 		{
 			Debug.Assert(decompilationContext.CurrentTypeDefinition == typeDef);
@@ -1858,6 +1876,9 @@ namespace ICSharpCode.Decompiler.CSharp
 					// e.g. DelegateDeclaration
 					return entityDecl;
 				}
+				// C# requires RVA carrier types to be as accessible as their fields.
+				if (IsPrivateRvaStorageType(typeDef))
+					typeDecl.Modifiers = (typeDecl.Modifiers & ~Modifiers.Private) | Modifiers.Internal;
 				bool isRecord = typeDef.Kind switch {
 					TypeKind.Class => settings.RecordClasses && typeDef.IsRecord,
 					TypeKind.Struct => settings.RecordStructs && typeDef.IsRecord,
