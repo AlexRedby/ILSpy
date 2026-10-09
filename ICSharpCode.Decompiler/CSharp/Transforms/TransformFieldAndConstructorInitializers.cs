@@ -257,6 +257,20 @@ namespace ICSharpCode.Decompiler.CSharp.Transforms
 
 		class ConstructorInitializerAnalyzer
 		{
+			sealed class ArrayInitializerStatements
+			{
+				public readonly VariableDeclarationStatement Declaration;
+				public readonly ExpressionStatement Assignment;
+				public readonly Statement[] Statements;
+
+				public ArrayInitializerStatements(VariableDeclarationStatement declaration, ExpressionStatement assignment, Statement[] statements)
+				{
+					Declaration = declaration;
+					Assignment = assignment;
+					Statements = statements;
+				}
+			}
+
 			internal readonly TransformContext context;
 			public readonly ITypeDefinition TypeDefinition;
 			public readonly TypeDeclaration? TypeDeclaration;
@@ -302,6 +316,147 @@ namespace ICSharpCode.Decompiler.CSharp.Transforms
 				TypeDefinition = typeDefinition;
 				TypeDeclaration = typeDeclaration;
 				RecordDecompiler = context.DecompileRun.RecordDecompilers.TryGetValue(typeDefinition, out var record) ? record : null;
+			}
+
+			public void ExtractPreBaseArrayInitializers(EntityDeclaration[] members)
+			{
+				if (TypeDeclaration == null || TypeDefinition.Kind != TypeKind.Class || TypeDefinition.IsRecord)
+					return;
+				var constructors = members.OfType<ConstructorDeclaration>().Where(c => !c.HasModifier(Modifiers.Static)).ToArray();
+				if (constructors.Length != TypeDefinition.Methods.Count(m => m.IsConstructor && !m.IsStatic))
+					return;
+				var fields = members.OfType<FieldDeclaration>()
+					.Where(f => f.GetSymbol() is IField { IsStatic: false } && f.Variables.Count == 1).ToArray();
+				var fieldOrder = fields.Select((f, index) => (field: ((IField)f.GetSymbol()!).MemberDefinition, index))
+					.ToDictionary(p => p.field, p => p.index);
+				List<(Statement[] Prefix, List<ArrayInitializerStatements> Arrays)> plans = [];
+				foreach (var ctor in constructors)
+				{
+					if (ctor.Body == null || ctor.HasModifier(Modifiers.Unsafe))
+						return;
+					var statements = ctor.Body.Statements.Where(s => s is not EmptyStatement).ToArray();
+					var firstCall = ThisCallClassPattern.Match(statements.FirstOrDefault());
+					if (firstCall.Success && firstCall.Get<AstNode>("invocation").Single().GetSymbol() is IMethod chained
+						&& chained.DeclaringTypeDefinition == TypeDefinition)
+						continue;
+					List<ArrayInitializerStatements> arrays = [];
+					int lastField = -1;
+					int position = 0;
+					for (; position < statements.Length; position++)
+					{
+						var call = ThisCallClassPattern.Match(statements[position]);
+						if (call.Success)
+						{
+							if (call.Get<AstNode>("invocation").Single().GetSymbol() is not IMethod { IsConstructor: true } baseCtor
+								|| !TypeDefinition.DirectBaseTypes.Any(t => t.GetDefinition() == baseCtor.DeclaringTypeDefinition))
+								return;
+							break;
+						}
+						if (statements[position] is VariableDeclarationStatement { Variables.Count: 1 } declaration)
+						{
+							var variable = declaration.Variables.Single();
+							var local = variable.Annotation<ILVariableResolveResult>()?.Variable;
+							if (local == null || variable.Initializer is not InvocationExpression allocation
+								|| allocation.GetResolveResult().Type is not ArrayType
+								|| !IsClosedInitializer(allocation))
+								return;
+							int start = position++;
+							for (; position < statements.Length; position++)
+							{
+								if (statements[position] is not ExpressionStatement {
+									Expression: AssignmentExpression { Operator: AssignmentOperatorType.Assign, Left: IndexerExpression indexer } element
+								} || indexer.Target?.Annotation<ILVariableResolveResult>()?.Variable != local
+									|| !IsClosedInitializer(element.Right)
+									|| indexer.Arguments.Any(a => !IsClosedInitializer(a)))
+									break;
+							}
+							if (position == start + 1 || position >= statements.Length
+								|| statements[position] is not ExpressionStatement { Expression: AssignmentExpression assignment } terminal
+								|| assignment.Right.Annotation<ILVariableResolveResult>()?.Variable != local
+								|| !CheckFieldAssignment(assignment)
+								|| !assignment.Left.GetResolveResult().Type.Equals(allocation.GetResolveResult().Type))
+								return;
+							var region = statements.Skip(start).Take(position - start + 1).ToArray();
+							var references = region.SelectMany(s => s.Descendants.OfType<IdentifierExpression>())
+								.Count(e => e.Annotation<ILVariableResolveResult>()?.Variable == local);
+							if (references != ctor.Body.Descendants.OfType<IdentifierExpression>()
+								.Count(e => e.Annotation<ILVariableResolveResult>()?.Variable == local)
+								|| region.SelectMany(s => s.Descendants).Any(n => n.GetResolveResult() is TypeResolveResult rr
+									&& rr.Type.Name == variable.Name))
+								return;
+							arrays.Add(new ArrayInitializerStatements(declaration, terminal, region));
+						}
+						else if (statements[position] is not ExpressionStatement { Expression: AssignmentExpression assignment }
+							|| !CheckFieldAssignment(assignment) || !IsClosedInitializer(assignment.Right))
+							return;
+					}
+					if (position == statements.Length)
+						return;
+					var prefix = statements.Take(position).ToArray();
+					if (plans.Count > 0 && (prefix.Length != plans[0].Prefix.Length
+						|| !prefix.Zip(plans[0].Prefix, (a, b) => a.IsMatch(b)).All(match => match)))
+						return;
+					plans.Add((prefix, arrays));
+
+					bool CheckFieldAssignment(AssignmentExpression assignment)
+					{
+						if (assignment.Operator != AssignmentOperatorType.Assign
+							|| assignment.Left is not IdentifierExpression and not MemberReferenceExpression { Target: ThisReferenceExpression }
+							|| assignment.Left.GetSymbol() is not IField field
+							|| !fieldOrder.TryGetValue(field.MemberDefinition, out int order) || order <= lastField
+							|| fields[order].Variables.Single().Initializer != null)
+							return false;
+						lastField = order;
+						return true;
+					}
+				}
+				if (plans.Count == 0 || plans[0].Arrays.Count == 0)
+					return;
+				var usedNames = new HashSet<string>(TypeDeclaration.DescendantsAndSelf.OfType<Identifier>().Select(i => i.Name)
+					.Concat(TypeDefinition.GetAllBaseTypeDefinitions().SelectMany(t => t.GetMembers()).Select(m => m.Name)), StringComparer.Ordinal);
+				int suffix = 0;
+				for (int i = 0; i < plans[0].Arrays.Count; i++)
+				{
+					string name;
+					do
+					{ name = "__InitializeField" + suffix++; } while (!usedNames.Add(name));
+					var array = plans[0].Arrays[i];
+					var helper = new MethodDeclaration {
+						Name = name, Modifiers = Modifiers.Private | Modifiers.Static,
+						ReturnType = array.Declaration.Type.Clone(), Body = new BlockStatement()
+					};
+					context.Step("Extract pre-base array initializer", array.Declaration);
+					foreach (var statement in array.Statements.Take(array.Statements.Length - 1))
+						helper.Body.Statements.Add(statement.Clone());
+					helper.Body.Statements.Add(new ReturnStatement(((AssignmentExpression)array.Assignment.Expression).Right.Clone()));
+					TypeDeclaration.Members.Add(helper);
+					foreach (var plan in plans)
+					{
+						array = plan.Arrays[i];
+						var assignment = (AssignmentExpression)array.Assignment.Expression;
+						Expression replacement = new InvocationExpression(new IdentifierExpression(name))
+							.WithRR(new ResolveResult(assignment.Right.GetResolveResult().Type));
+						// Keep every constructor's removed work available to the field-initializer PDB mapping.
+						foreach (var instruction in array.Statements.Take(array.Statements.Length - 1)
+							.SelectMany(s => s.DescendantsAndSelf).SelectMany(n => n.Annotations.OfType<ILInstruction>())
+							.Concat(assignment.Right.Annotations.OfType<ILInstruction>()).Distinct())
+							replacement.AddAnnotation(instruction);
+						assignment.Right = replacement;
+						foreach (var statement in array.Statements.Take(array.Statements.Length - 1))
+							statement.Remove();
+					}
+					context.EndStep(helper);
+				}
+			}
+
+			static bool IsClosedInitializer(Expression expression)
+			{
+				return !expression.DescendantsAndSelf.Any(n => n is ThisReferenceExpression or BaseReferenceExpression
+					or LambdaExpression or AnonymousMethodExpression or DirectionExpression
+					|| n.Annotation<ILFunction>() != null
+					|| n.GetResolveResult() is ILVariableResolveResult or ThisResolveResult
+					or MemberResolveResult { TargetResult: ThisResolveResult }
+					|| n is ComposedType { PointerRank: > 0 });
 			}
 
 			public bool Analyze(IEnumerable<AstNode> members)
@@ -932,6 +1087,9 @@ namespace ICSharpCode.Decompiler.CSharp.Transforms
 		private bool TransformDeclaration(ITypeDefinition currentTypeDefinition, AstNode node, IEnumerable<EntityDeclaration> members)
 		{
 			var analyzer = new ConstructorInitializerAnalyzer(context, currentTypeDefinition, node as TypeDeclaration);
+			var originalMembers = members.ToArray();
+			analyzer.ExtractPreBaseArrayInitializers(originalMembers);
+			members = originalMembers;
 
 			if (!analyzer.Analyze(members))
 				return false;
