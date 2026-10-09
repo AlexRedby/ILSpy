@@ -372,9 +372,11 @@ namespace ICSharpCode.Decompiler.CSharp.Transforms
 							}
 							if (position == start + 1 || position >= statements.Length
 								|| statements[position] is not ExpressionStatement { Expression: AssignmentExpression assignment } terminal
-								|| assignment.Right.Annotation<ILVariableResolveResult>()?.Variable != local
+								|| !(assignment.Right.Annotation<ILVariableResolveResult>()?.Variable == local
+									|| assignment.Right is ObjectCreateExpression && IsClosedInitializer(assignment.Right, local)
+										&& assignment.Right.Descendants.OfType<IdentifierExpression>().Any(e => e.Annotation<ILVariableResolveResult>()?.Variable == local))
 								|| !CheckFieldAssignment(assignment)
-								|| !assignment.Left.GetResolveResult().Type.Equals(allocation.GetResolveResult().Type))
+								|| !assignment.Left.GetResolveResult().Type.Equals(assignment.Right.GetResolveResult().Type))
 								return;
 							var region = statements.Skip(start).Take(position - start + 1).ToArray();
 							var references = region.SelectMany(s => s.Descendants.OfType<IdentifierExpression>())
@@ -421,9 +423,11 @@ namespace ICSharpCode.Decompiler.CSharp.Transforms
 					do
 					{ name = "__InitializeField" + suffix++; } while (!usedNames.Add(name));
 					var array = plans[0].Arrays[i];
+					var field = (IField)((AssignmentExpression)array.Assignment.Expression).Left.GetSymbol()!;
 					var helper = new MethodDeclaration {
 						Name = name, Modifiers = Modifiers.Private | Modifiers.Static,
-						ReturnType = array.Declaration.Type.Clone(), Body = new BlockStatement()
+						ReturnType = fields[fieldOrder[field.MemberDefinition]].ReturnType.Clone(),
+						Body = new BlockStatement()
 					};
 					context.Step("Extract pre-base array initializer", array.Declaration);
 					foreach (var statement in array.Statements.Take(array.Statements.Length - 1))
@@ -449,12 +453,13 @@ namespace ICSharpCode.Decompiler.CSharp.Transforms
 				}
 			}
 
-			static bool IsClosedInitializer(Expression expression)
+			static bool IsClosedInitializer(Expression expression, ILVariable? allowedLocal = null)
 			{
 				return !expression.DescendantsAndSelf.Any(n => n is ThisReferenceExpression or BaseReferenceExpression
 					or LambdaExpression or AnonymousMethodExpression or DirectionExpression
 					|| n.Annotation<ILFunction>() != null
-					|| n.GetResolveResult() is ILVariableResolveResult or ThisResolveResult
+					|| n.GetResolveResult() is ILVariableResolveResult local && local.Variable != allowedLocal
+					|| n.GetResolveResult() is ThisResolveResult
 					or MemberResolveResult { TargetResult: ThisResolveResult }
 					|| n is ComposedType { PointerRank: > 0 });
 			}

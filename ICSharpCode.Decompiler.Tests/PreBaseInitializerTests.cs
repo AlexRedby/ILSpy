@@ -55,6 +55,13 @@ public sealed class PreBaseInitializerTests
 	[TestCase("Generic", true)]
 	[TestCase("GenericElement", true)]
 	[TestCase("SecondArray", true)]
+	[TestCase("Wrapped", false)]
+	[TestCase("Wrapped", true)]
+	[TestCase("WrappedShared", true)]
+	[TestCase("WrappedChained", true)]
+	[TestCase("WrappedGenericElement", true)]
+	[TestCase("WrappedThrowing", true)]
+	[TestCase("WrappedObjectThrowing", true)]
 	public void RetainedFactoryInitializerRoundtrips(string shape, bool optimize)
 	{
 		byte[] original = BuildFixture(shape, optimize);
@@ -68,21 +75,25 @@ public sealed class PreBaseInitializerTests
 		Assert.That(helpers.Where(m => m.GetSymbol() == null).All(m => m.Annotation<ILFunction>() == null), Is.True);
 		byte[] recompiled = Compile(code, optimize);
 		Assert.That(Run(recompiled), Is.EqualTo(Run(original)));
-		Assert.That(Run(original), Does.StartWith(shape == "Throwing" ? "1CF23|InvalidOperationException"
+		Assert.That(Run(original), Does.StartWith(shape is "Throwing" or "WrappedThrowing" ? "1CF23|InvalidOperationException"
+			: shape == "WrappedObjectThrowing" ? "1CF23W|InvalidOperationException"
+			: shape.StartsWith("Wrapped", StringComparison.Ordinal) ? "1CF23W4B|1,2,3,4"
 			: shape == "SecondArray" ? "1CF23F454B|1,2,3,4" : "1CF234B|1,2,3,4"));
 	}
 
-	[Test]
-	public void TokenizedInitializerKeepsRealMetadataIdentities()
+	[TestCase("Simple")]
+	[TestCase("Wrapped")]
+	public void TokenizedInitializerKeepsRealMetadataIdentities(string shape)
 	{
-		byte[] original = BuildFixture("Simple", true);
+		byte[] original = BuildFixture(shape, true);
 		using var pe = new PEFile("PreBase.dll", new MemoryStream(original));
 		var decompiler = CreateDecompiler(pe, tokenize: true);
 		var tree = decompiler.DecompileWholeModuleAsSingleFile();
 		var helper = tree.Descendants.OfType<MethodDeclaration>().Single(m => m.GetSymbol() == null);
 		Assert.That(helper.Name, Does.StartWith("__InitializeField"));
 		Assert.That(helper.Annotation<ILFunction>(), Is.Null);
-		Assert.That(helper.ReturnType.GetResolveResult().Type, Is.InstanceOf<ArrayType>());
+		Assert.That(helper.ReturnType.GetResolveResult().Type.Equals(
+			tree.Descendants.OfType<FieldDeclaration>().Single(f => f.GetSymbol() is IField { Name: "Points" }).ReturnType.GetResolveResult().Type), Is.True);
 		Assert.That(helper.ReturnType.ToString(), Does.StartWith("type_"));
 		var factory = helper.Body.Descendants.OfType<InvocationExpression>()
 			.Single(i => i.GetSymbol() is IMethod { Name: "Create" });
@@ -124,6 +135,7 @@ public sealed class PreBaseInitializerTests
 
 	[TestCase("Simple")]
 	[TestCase("Shared")]
+	[TestCase("WrappedShared")]
 	public void ExtractedArrayRangesMapToInitializerInEveryConstructor(string shape)
 	{
 		byte[] bytes = BuildFixture(shape, true);
@@ -159,6 +171,17 @@ public sealed class PreBaseInitializerTests
 	[TestCase("ParameterIndex")]
 	[TestCase("Duplicate")]
 	[TestCase("ExceptionRegion")]
+	[TestCase("WrappedParameter")]
+	[TestCase("WrappedInstance")]
+	[TestCase("WrappedEscaping")]
+	[TestCase("WrappedDifferent")]
+	[TestCase("WrappedFieldOrder")]
+	[TestCase("WrappedParameterElement")]
+	[TestCase("WrappedParameterIndex")]
+	[TestCase("WrappedParameterArgument")]
+	[TestCase("WrappedInstanceArgument")]
+	[TestCase("WrappedLambdaArgument")]
+	[TestCase("WrappedRefArgument")]
 	public void UnsafeOrUnnecessaryExtractionDoesNotAddHelper(string shape)
 	{
 		var tree = Decompile(BuildFixture(shape, true));
@@ -225,6 +248,9 @@ public sealed class PreBaseInitializerTests
 
 	static byte[] BuildFixture(string shape, bool optimize)
 	{
+		bool wrapped = shape.StartsWith("Wrapped", StringComparison.Ordinal);
+		if (wrapped)
+			shape = shape.Length == "Wrapped".Length ? "Simple" : shape.Substring("Wrapped".Length);
 		string body = "Scalar = Trace.Mark(1); var array = Factory.Create(2); "
 			+ "array[0] = new Item(Trace.Mark(2)); array[1] = new Item(Trace.Mark(3)); Points = array; Tail = Trace.Mark(4);";
 		string parameter = shape.StartsWith("Parameter", StringComparison.Ordinal) ? "int size" : "";
@@ -248,6 +274,16 @@ public sealed class PreBaseInitializerTests
 			body = body.Replace("Tail =", "var second = Factory.Create(2); second[0] = new Item(Trace.Mark(4)); second[1] = new Item(Trace.Mark(5)); Extra = second; Tail =");
 		if (shape == "GenericElement")
 			body = body.Replace("Factory.Create(2)", "Factory.Create<T>(2)").Replace("new Item(", "(T)(object)new Item(");
+		string wrapperArgument = shape switch {
+			"ParameterArgument" => ", size",
+			"InstanceArgument" => ", ReadInstance()",
+			"LambdaArgument" => ", () => Scalar",
+			"RefArgument" => ", ref Scalar",
+			_ => ""
+		};
+		string itemType = shape == "GenericElement" ? "T" : "Item";
+		if (wrapped)
+			body = body.Replace("Points = array;", $"Points = new Wrapper<{itemType}>(array{wrapperArgument});");
 		string generic = shape is "Generic" or "GenericElement" ? "<T>" : "";
 		string type = shape == "Generic" ? "Derived<string>" : shape == "GenericElement" ? "Derived<Item>" : "Derived";
 		string other = shape is "Shared" or "Different" ? "public Derived(bool unused) { "
@@ -265,6 +301,13 @@ public sealed class PreBaseInitializerTests
 				public static int Mark(int value) { Value += value; if (value == 3 && {{(shape == "Throwing" ? "true" : "false")}}) throw new InvalidOperationException(); return value; }
 			}
 			public struct Item { public int Value; public Item(int value) { Value = value; } }
+			public class Wrapper<T> {
+				public T[] Items;
+				public Wrapper(T[] items) { Trace.Value += "W"; if ({{(shape == "ObjectThrowing" ? "true" : "false")}}) throw new InvalidOperationException(); Items = items; }
+				public Wrapper(T[] items, int unused) : this(items) { }
+				public Wrapper(T[] items, Func<int> unused) : this(items) { }
+				public Wrapper(T[] items, ref int unused) : this(items) { }
+			}
 			public static class Factory {
 				public static Item[] Escaped;
 				static Factory() { Trace.Value += "C"; }
@@ -279,14 +322,14 @@ public sealed class PreBaseInitializerTests
 			}
 			public class Derived{{generic}} : Observer {
 				public int Scalar;
-				public {{(shape == "GenericElement" ? "T" : "Item")}}[] Points;
+				public {{(wrapped ? $"Wrapper<{itemType}>" : itemType + "[]")}} Points;
 				{{(shape == "SecondArray" ? "public Item[] Extra;" : "")}}
 				public int Tail;
 				public Derived({{parameter}}) { {{body}} }
 				{{other}}
 				{{collision}}
 				public int ReadInstance() => Scalar;
-				public override string Snapshot() => Scalar + "," + ((Item)(object)Points[0]).Value + "," + ((Item)(object)Points[1]).Value + "," + Tail;
+				public override string Snapshot() => Scalar + "," + ((Item)(object)Points{{(wrapped ? ".Items" : "")}}[0]).Value + "," + ((Item)(object)Points{{(wrapped ? ".Items" : "")}}[1]).Value + "," + Tail;
 			}
 			public static class Entry {
 				public static string Run() {
