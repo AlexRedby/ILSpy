@@ -1263,18 +1263,11 @@ namespace ICSharpCode.Decompiler.CSharp
 			}
 			else if (inst.InputType == StackType.Obj)
 			{
-				// Unsafe.As<object, UIntPtr>(ref left) op Unsafe.As<object, UIntPtr>(ref right)
-				// TTo Unsafe.As<TFrom, TTo>(ref TFrom source)
-				var integerType = compilation.FindType(inst.Sign == Sign.Signed ? KnownTypeCode.IntPtr : KnownTypeCode.UIntPtr);
-				left = WrapInUnsafeAs(left, inst.Left);
-				right = WrapInUnsafeAs(right, inst.Right);
-
-				TranslatedExpression WrapInUnsafeAs(TranslatedExpression expr, ILInstruction inst)
-				{
-					var type = expr.Type;
-					expr = WrapInRef(expr, new ByReferenceType(type));
-					return CallUnsafeIntrinsic("As", [expr], integerType, typeArguments: [type, integerType]);
-				}
+				// Object-reference comparisons have unsigned ordering even without an integer sign.
+				Sign sign = inst.Sign == Sign.None ? Sign.Unsigned : inst.Sign;
+				IType arithmeticType = FindArithmeticType(StackType.I, sign);
+				left = ReadObjectReference(left, inst.Left, sign).ConvertTo(arithmeticType, this);
+				right = ReadObjectReference(right, inst.Right, sign).ConvertTo(arithmeticType, this);
 			}
 			return new BinaryOperatorExpression(left.Expression, op, right.Expression)
 				.WithILInstruction(inst)
@@ -2433,28 +2426,7 @@ namespace ICSharpCode.Decompiler.CSharp
 					}
 					else
 					{
-						// Read the object reference without introducing pinning that was absent in the IL.
-						// Always read native width, even when the conversion subsequently widens to 64 bits.
-						var integerType = compilation.FindType(inst.TargetType.GetSign() == Sign.Signed ? KnownTypeCode.IntPtr : KnownTypeCode.UIntPtr);
-						if (inputType.Kind == TypeKind.Null)
-						{
-							inputType = compilation.FindType(KnownTypeCode.Object);
-							arg = arg.ConvertTo(inputType, this);
-						}
-						var referenceType = new ByReferenceType(inputType);
-						if (inst.Argument is LdLoc ldloc && arg.Expression is IdentifierExpression
-							&& !ldloc.Variable.IsRefReadOnly
-							&& ldloc.Variable.Kind != VariableKind.ForeachLocal
-							&& ldloc.Variable.Kind != VariableKind.UsingLocal)
-						{
-							arg = WrapInRef(arg, referenceType);
-						}
-						else
-						{
-							// Omitting 'in' permits a temporary for non-addressable expressions.
-							arg = CallUnsafeIntrinsic("AsRef", [arg], referenceType, typeArguments: [inputType]);
-						}
-						return CallUnsafeIntrinsic("As", [arg], integerType, typeArguments: [inputType, integerType])
+						return ReadObjectReference(arg, inst.Argument, inst.TargetType.GetSign())
 							.ConvertTo(GetType(inst.TargetType.ToKnownTypeCode()), this).WithILInstruction(inst);
 					}
 				case ConversionKind.SignExtend:
@@ -2601,6 +2573,32 @@ namespace ICSharpCode.Decompiler.CSharp
 		protected internal override TranslatedExpression VisitCallVirt(CallVirt inst, TranslationContext context)
 		{
 			return WrapInRef(new CallBuilder(this, typeSystem, settings).Build(inst), inst.Method.ReturnType);
+		}
+
+		TranslatedExpression ReadObjectReference(TranslatedExpression expr, ILInstruction input, Sign sign)
+		{
+			// Read native width without introducing pinning, even when the result will be widened.
+			var integerType = compilation.FindType(sign == Sign.Signed ? KnownTypeCode.IntPtr : KnownTypeCode.UIntPtr);
+			var type = expr.Type;
+			if (type.Kind == TypeKind.Null)
+			{
+				type = compilation.FindType(KnownTypeCode.Object);
+				expr = expr.ConvertTo(type, this);
+			}
+			var referenceType = new ByReferenceType(type);
+			if (input is LdLoc ldloc && expr.Expression is IdentifierExpression
+				&& !ldloc.Variable.IsRefReadOnly
+				&& ldloc.Variable.Kind != VariableKind.ForeachLocal
+				&& ldloc.Variable.Kind != VariableKind.UsingLocal)
+			{
+				expr = WrapInRef(expr, referenceType);
+			}
+			else
+			{
+				// Omitting 'in' permits a temporary for non-addressable expressions.
+				expr = CallUnsafeIntrinsic("AsRef", [expr], referenceType, typeArguments: [type]);
+			}
+			return CallUnsafeIntrinsic("As", [expr], integerType, typeArguments: [type, integerType]);
 		}
 
 		TranslatedExpression WrapInRef(TranslatedExpression expr, IType type)

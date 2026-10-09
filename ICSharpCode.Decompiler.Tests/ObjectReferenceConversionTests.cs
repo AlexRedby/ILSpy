@@ -23,6 +23,7 @@ using System.Runtime.CompilerServices;
 using System.Runtime.Loader;
 
 using ICSharpCode.Decompiler.CSharp;
+using ICSharpCode.Decompiler.Tests.Helpers;
 using ICSharpCode.Decompiler.Metadata;
 using ICSharpCode.Decompiler.TypeSystem;
 
@@ -54,6 +55,91 @@ public sealed class ObjectReferenceConversionTests
 		NativeUnsigned,
 		Signed64,
 		Unsigned64
+	}
+
+	public enum OrderedComparison
+	{
+		SignedGreaterThan,
+		UnsignedGreaterThan,
+		SignedLessThan,
+		UnsignedLessThan,
+		SignedGreaterThanOrEqual,
+		UnsignedGreaterThanOrEqual,
+		SignedLessThanOrEqual,
+		UnsignedLessThanOrEqual
+	}
+
+	static readonly ReferenceInput[] comparisonInputs = {
+		ReferenceInput.StringLocal, ReferenceInput.ObjectParameter, ReferenceInput.MethodReturn,
+		ReferenceInput.ReadonlyField, ReferenceInput.NullLiteral
+	};
+	static readonly OrderedComparison[] runtimeComparisons = {
+		OrderedComparison.UnsignedGreaterThan, OrderedComparison.UnsignedLessThan,
+		OrderedComparison.UnsignedGreaterThanOrEqual, OrderedComparison.UnsignedLessThanOrEqual
+	};
+
+	[Test]
+	public void OrderedObjectReferencesCompile(
+		[ValueSource(nameof(comparisonInputs))] ReferenceInput input,
+		[Values] OrderedComparison comparison, [Values] bool nativeIntegers)
+	{
+		using var assembly = BuildAssembly();
+		AddComparison(assembly.MainModule, input, comparison);
+		string code = Decompile(Serialize(assembly), nativeIntegers);
+		Assert.That(code, Does.Not.Contain("fixed ("));
+		byte[] recompiled = Compile(code);
+		if (input == ReferenceInput.ObjectParameter)
+		{
+			using var stream = new MemoryStream(recompiled);
+			using var result = Cecil.AssemblyDefinition.ReadAssembly(stream);
+			var instructions = result.MainModule.GetType("ConversionFixture").Methods.Single(method => method.Name == "Compare").Body.Instructions;
+			// Object-reference ordering is unsigned; check actual codegen rather than native-type spellings.
+			Assert.That(instructions.Any(instruction => instruction.OpCode == OpCodes.Cgt_Un || instruction.OpCode == OpCodes.Clt_Un), Is.True);
+			Assert.That(instructions.Any(instruction => instruction.OpCode == OpCodes.Cgt || instruction.OpCode == OpCodes.Clt), Is.False);
+		}
+	}
+
+	[Test]
+	public void OrderedObjectReferencesRoundtrip(
+		[ValueSource(nameof(comparisonInputs))] ReferenceInput input,
+		[ValueSource(nameof(runtimeComparisons))] OrderedComparison comparison, [Values] bool nativeIntegers)
+	{
+		using var assembly = BuildAssembly();
+		AddComparison(assembly.MainModule, input, comparison);
+		byte[] original = Serialize(assembly);
+		string code = Decompile(original, nativeIntegers);
+		Assert.That(code, Does.Not.Contain("fixed ("));
+		byte[] recompiled = Compile(code);
+
+		// Equal and null references have stable ordering without comparing movable object addresses.
+		object reference = "abc";
+		foreach (var arguments in new[] {
+			new[] { reference, reference }, new[] { reference, null },
+			new[] { null, reference }, new object[] { null, null }
+		})
+		{
+			var expected = Invoke(original, "Compare", arguments);
+			var actual = Invoke(recompiled, "Compare", arguments);
+			Assert.That(actual.Value, Is.EqualTo(expected.Value));
+			Assert.That(actual.Counter, Is.EqualTo(expected.Counter));
+			Assert.That(actual.Counter, Is.EqualTo(input == ReferenceInput.MethodReturn ? 12 : 0));
+		}
+	}
+
+	[Test]
+	public void OrderedObjectReferencesCompileAgainstLegacyFramework(
+		[ValueSource(nameof(comparisonInputs))] ReferenceInput input,
+		[Values] OrderedComparison comparison, [Values] bool nativeIntegers)
+	{
+		using var assembly = BuildAssembly();
+		AddComparison(assembly.MainModule, input, comparison);
+		string code = Decompile(Serialize(assembly), nativeIntegers);
+		string referenceDirectory = Tester.RefAssembliesToolset.GetPath("legacy");
+		var references = new[] { "mscorlib.dll", "System.Runtime.dll", "System.Runtime.CompilerServices.Unsafe.dll" }
+			.Select(name => Path.Combine(referenceDirectory, name)).ToArray();
+		foreach (string path in references)
+			Assert.That(File.Exists(path), Is.True, $"Missing legacy reference assembly: {path}");
+		Compile(code, references.Select(path => MetadataReference.CreateFromFile(path)));
 	}
 
 	[Test]
@@ -176,7 +262,7 @@ public sealed class ObjectReferenceConversionTests
 		};
 	}
 
-	static (object Value, int Counter) Invoke(byte[] image, string method, object argument)
+	static (object Value, int Counter) Invoke(byte[] image, string method, params object[] arguments)
 	{
 		var context = new AssemblyLoadContext("ReferenceConversion", isCollectible: true);
 		try
@@ -184,7 +270,7 @@ public sealed class ObjectReferenceConversionTests
 			using var stream = new MemoryStream(image);
 			var assembly = context.LoadFromStream(stream);
 			var type = assembly.GetType("ConversionFixture");
-			object value = type.GetMethod(method).Invoke(null, new[] { argument });
+			object value = type.GetMethod(method).Invoke(null, arguments);
 			return (value, (int)type.GetField("Counter").GetValue(null));
 		}
 		finally
@@ -210,9 +296,9 @@ public sealed class ObjectReferenceConversionTests
 		return decompiler.DecompileTypeAsString(new FullTypeName("ConversionFixture"));
 	}
 
-	static byte[] Compile(string code)
+	static byte[] Compile(string code, System.Collections.Generic.IEnumerable<MetadataReference> references = null)
 	{
-		var references = ((string)AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES")).Split(Path.PathSeparator)
+		references ??= ((string)AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES")).Split(Path.PathSeparator)
 			.Select(path => MetadataReference.CreateFromFile(path));
 		var compilation = CSharpCompilation.Create("ReferenceRecompiled", new[] { CSharpSyntaxTree.ParseText(code) }, references,
 			new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary, allowUnsafe: true));
@@ -305,6 +391,71 @@ public sealed class ObjectReferenceConversionTests
 			Conversion.Unsigned64 => OpCodes.Conv_U8,
 			_ => throw new ArgumentOutOfRangeException(nameof(conversion))
 		});
+		il.Emit(OpCodes.Ret);
+	}
+
+	static void AddComparison(Cecil.ModuleDefinition module, ReferenceInput input, OrderedComparison comparison)
+	{
+		var type = module.GetType("ConversionFixture");
+		var method = new Cecil.MethodDefinition("Compare", Cecil.MethodAttributes.Public | Cecil.MethodAttributes.Static, module.TypeSystem.Boolean);
+		method.Parameters.Add(new Cecil.ParameterDefinition("left", Cecil.ParameterAttributes.None, module.TypeSystem.Object));
+		method.Parameters.Add(new Cecil.ParameterDefinition("right", Cecil.ParameterAttributes.None, module.TypeSystem.Object));
+		type.Methods.Add(method);
+		var il = method.Body.GetILProcessor();
+		Cecil.MethodDefinition getter = null;
+		if (input == ReferenceInput.MethodReturn)
+		{
+			getter = new Cecil.MethodDefinition("Get", Cecil.MethodAttributes.Public | Cecil.MethodAttributes.Static, module.TypeSystem.Object);
+			getter.Parameters.Add(new Cecil.ParameterDefinition("value", Cecil.ParameterAttributes.None, module.TypeSystem.Object));
+			getter.Parameters.Add(new Cecil.ParameterDefinition("marker", Cecil.ParameterAttributes.None, module.TypeSystem.Int32));
+			type.Methods.Add(getter);
+			var getIL = getter.Body.GetILProcessor();
+			var counter = type.Fields.Single(field => field.Name == "Counter");
+			getIL.Emit(OpCodes.Ldsfld, counter);
+			getIL.Emit(OpCodes.Ldc_I4, 10);
+			getIL.Emit(OpCodes.Mul);
+			getIL.Emit(OpCodes.Ldarg_1);
+			getIL.Emit(OpCodes.Add);
+			getIL.Emit(OpCodes.Stsfld, counter);
+			getIL.Emit(OpCodes.Ldarg_0);
+			getIL.Emit(OpCodes.Ret);
+		}
+		for (int operand = 0; operand < 2; operand++)
+		{
+			if (operand == 0 && input == ReferenceInput.StringLocal)
+			{
+				var local = new Cecil.Cil.VariableDefinition(module.TypeSystem.String);
+				method.Body.InitLocals = true;
+				method.Body.Variables.Add(local);
+				il.Emit(OpCodes.Ldarg_0);
+				il.Emit(OpCodes.Castclass, module.TypeSystem.String);
+				il.Emit(OpCodes.Stloc, local);
+				il.Emit(OpCodes.Ldloc, local);
+			}
+			else if (operand == 0 && input == ReferenceInput.ReadonlyField)
+				il.Emit(OpCodes.Ldsfld, type.Fields.Single(field => field.Name == "Text"));
+			else if (operand == 0 && input == ReferenceInput.NullLiteral)
+				il.Emit(OpCodes.Ldnull);
+			else
+				il.Emit(operand == 0 ? OpCodes.Ldarg_0 : OpCodes.Ldarg_1);
+			if (getter != null)
+			{
+				il.Emit(OpCodes.Ldc_I4, operand + 1);
+				il.Emit(OpCodes.Call, getter);
+			}
+		}
+		il.Emit(comparison switch {
+			OrderedComparison.SignedGreaterThan or OrderedComparison.SignedLessThanOrEqual => OpCodes.Cgt,
+			OrderedComparison.UnsignedGreaterThan or OrderedComparison.UnsignedLessThanOrEqual => OpCodes.Cgt_Un,
+			OrderedComparison.SignedLessThan or OrderedComparison.SignedGreaterThanOrEqual => OpCodes.Clt,
+			OrderedComparison.UnsignedLessThan or OrderedComparison.UnsignedGreaterThanOrEqual => OpCodes.Clt_Un,
+			_ => throw new ArgumentOutOfRangeException(nameof(comparison))
+		});
+		if (comparison >= OrderedComparison.SignedGreaterThanOrEqual)
+		{
+			il.Emit(OpCodes.Ldc_I4_0);
+			il.Emit(OpCodes.Ceq);
+		}
 		il.Emit(OpCodes.Ret);
 	}
 
