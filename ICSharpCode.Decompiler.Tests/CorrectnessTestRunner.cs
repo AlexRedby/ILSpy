@@ -359,6 +359,36 @@ namespace ICSharpCode.Decompiler.Tests
 			await RunIL("NonGenericConstrainedCallVirt.il", CompilerOptions.UseRoslynLatest);
 		}
 
+		[Test, NonParallelizable]
+		public async Task UnmanagedConstraintWithoutAttribute([Values(CompilerOptions.UseRoslyn3_11_0, CompilerOptions.UseRoslyn4_14_0,
+			CompilerOptions.UseRoslynLatest, CompilerOptions.UseRoslynLatest | CompilerOptions.Optimize)] CompilerOptions compilerOptions)
+		{
+			await RunIL("UnmanagedConstraintWithoutAttribute.il", compilerOptions);
+
+			using var module = new PEFile(Path.Combine(TestCasePath, "UnmanagedConstraintWithoutAttribute.exe"));
+			foreach (bool enabled in new[] { false, true })
+			{
+				var options = enabled ? TypeSystemOptions.Default : TypeSystemOptions.Default & ~TypeSystemOptions.UnmanagedConstraints;
+				var compilation = new SimpleCompilation(module.WithOptions(options), TypeSystem.TypeSystemLoaderTests.Mscorlib);
+				foreach (string name in new[] { "WithoutAttribute", "RenamedAttribute", "CanonicalAttribute", "CanonicalAttributeOnly" })
+				{
+					var type = compilation.FindType(new FullTypeName(name + "`1")).GetDefinition();
+					Assert.That(type.TypeParameters.Single().HasUnmanagedConstraint, Is.EqualTo(enabled), name);
+				}
+				var program = compilation.FindType(new FullTypeName("Program")).GetDefinition();
+				Assert.That(program.Methods.Single(m => m.Name == "WithoutAttribute").TypeParameters.Single().HasUnmanagedConstraint, Is.EqualTo(enabled));
+				foreach (string name in new[] { "StructOnly", "OptionalModifier", "WrongModifier", "WrongNamespace", "EnumElement", "MissingValueFlag", "RenamedAttributeOnly" })
+				{
+					var type = compilation.FindType(new FullTypeName(name + "`1")).GetDefinition();
+					Assert.That(type.TypeParameters.Single().HasUnmanagedConstraint, Is.False, name);
+				}
+				var renamed = compilation.FindType(new FullTypeName("RenamedAttribute`1")).GetDefinition();
+				Assert.That(renamed.TypeParameters.Single().GetAttributes().Single().AttributeType.FullName, Is.EqualTo("MarkerAttribute"));
+				var canonical = compilation.FindType(new FullTypeName("CanonicalAttribute`1")).GetDefinition();
+				Assert.That(canonical.TypeParameters.Single().GetAttributes().Count(), Is.EqualTo(enabled ? 0 : 1));
+			}
+		}
+
 		[Test]
 		public async Task DuplicateGenericParameterNames()
 		{

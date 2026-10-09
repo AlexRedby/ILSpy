@@ -154,7 +154,21 @@ namespace ICSharpCode.Decompiler.TypeSystem.Implementation
 				return false;
 			var metadata = module.metadata;
 			var gp = metadata.GetGenericParameter(handle);
-			return gp.GetCustomAttributes().HasKnownAttribute(metadata, KnownAttribute.IsUnmanaged);
+			if (gp.GetCustomAttributes().HasKnownAttribute(metadata, KnownAttribute.IsUnmanaged))
+				return true;
+			if (!HasValueTypeConstraint)
+				return false;
+			// The required ValueType modifier survives renamed or missing marker attributes.
+			foreach (var constraintHandle in gp.GetConstraints())
+			{
+				var constraint = metadata.GetGenericParameterConstraint(constraintHandle);
+				var type = module.ResolveType(constraint.Type, new GenericContext(Owner), module.TypeSystemOptions | TypeSystemOptions.KeepModifiers);
+				if (type is ModifiedType modified && modified.Kind == TypeKind.ModReq
+					&& modified.Modifier.FullName == "System.Runtime.InteropServices.UnmanagedType"
+					&& modified.ElementType.IsKnownType(KnownTypeCode.ValueType))
+					return true;
+			}
+			return false;
 		}
 
 		public override Nullability NullabilityConstraint {
