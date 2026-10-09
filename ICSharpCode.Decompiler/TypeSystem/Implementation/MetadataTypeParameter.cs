@@ -19,6 +19,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Globalization;
 using System.Linq;
 using System.Reflection;
 using System.Reflection.Metadata;
@@ -43,42 +44,58 @@ namespace ICSharpCode.Decompiler.TypeSystem.Implementation
 
 		public static ITypeParameter[] Create(MetadataModule module, ITypeDefinition copyFromOuter, IEntity owner, GenericParameterHandleCollection handles)
 		{
-			if (handles.Count == 0)
-				return Empty<ITypeParameter>.Array;
-			var outerTps = copyFromOuter.TypeParameters;
-			var tps = new ITypeParameter[handles.Count];
-			int i = 0;
-			foreach (var handle in handles)
-			{
-				if (i < outerTps.Count)
-					tps[i] = outerTps[i];
-				else
-					tps[i] = Create(module, owner, i, handle);
-				i++;
-			}
-			return tps;
+			return Create(module, owner, handles, copyFromOuter.TypeParameters, copyFromOuter.TypeParameterCount);
 		}
 
 		public static ITypeParameter[] Create(MetadataModule module, IEntity owner, GenericParameterHandleCollection handles)
 		{
 			if (handles.Count == 0)
 				return Empty<ITypeParameter>.Array;
-			var tps = new ITypeParameter[handles.Count];
+			var outerTps = owner is IMethod method ? method.DeclaringTypeDefinition.TypeParameters : Empty<ITypeParameter>.Array;
+			return Create(module, owner, handles, outerTps, 0);
+		}
+
+		static ITypeParameter[] Create(MetadataModule module, IEntity owner, GenericParameterHandleCollection handles,
+			IReadOnlyList<ITypeParameter> outerTps, int inheritedCount)
+		{
+			if (handles.Count == 0)
+				return Empty<ITypeParameter>.Array;
+			var usedNames = new HashSet<string>(outerTps.Select(p => p.Name), StringComparer.Ordinal);
+			var reservedNames = new HashSet<string>(usedNames, StringComparer.Ordinal);
+			// Reserve original names before allocating aliases so a suffix never steals another slot's name.
 			int i = 0;
 			foreach (var handle in handles)
 			{
-				tps[i] = Create(module, owner, i, handle);
+				if (i++ >= inheritedCount)
+					reservedNames.Add(module.GetString(module.metadata.GetGenericParameter(handle).Name));
+			}
+			var tps = new ITypeParameter[handles.Count];
+			i = 0;
+			foreach (var handle in handles)
+			{
+				if (i < inheritedCount)
+				{
+					tps[i] = outerTps[i];
+				}
+				else
+				{
+					var gp = module.metadata.GetGenericParameter(handle);
+					Debug.Assert(gp.Index == i);
+					string name = module.GetString(gp.Name);
+					if (!usedNames.Add(name))
+					{
+						string baseName = name;
+						int suffix = 1;
+						do
+						{
+							name = baseName + (suffix++).ToString(CultureInfo.InvariantCulture);
+						} while (reservedNames.Contains(name) || !usedNames.Add(name));
+					}
+					tps[i] = new MetadataTypeParameter(module, owner, i, name, handle, gp.Attributes);
+				}
 				i++;
 			}
 			return tps;
-		}
-
-		public static MetadataTypeParameter Create(MetadataModule module, IEntity owner, int index, GenericParameterHandle handle)
-		{
-			var metadata = module.metadata;
-			var gp = metadata.GetGenericParameter(handle);
-			Debug.Assert(gp.Index == index);
-			return new MetadataTypeParameter(module, owner, index, module.GetString(gp.Name), handle, gp.Attributes);
 		}
 
 		private MetadataTypeParameter(MetadataModule module, IEntity owner, int index, string name,

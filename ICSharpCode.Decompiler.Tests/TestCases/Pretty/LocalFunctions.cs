@@ -83,14 +83,22 @@ namespace LocalFunctions
 					return typeof(T1).Name.Length + typeof(T2).Name.Length + typeof(T3).Name.Length + typeof(T4).Name.Length + StaticMethod<float>() + StaticMethod2<T3, DayOfWeek>();
 				}
 #pragma warning disable CS8387
-#if CS80
+#if CS80 && EXPECTED_OUTPUT
+				static int StaticMethod3<T21, T3, T4>() where T21 : IConvertible where T3 : struct where T4 : Enum
+#elif CS80
 				static int StaticMethod3<T2, T3, T4>() where T2 : IConvertible where T3 : struct where T4 : Enum
+#elif EXPECTED_OUTPUT
+				int StaticMethod3<T21, T3, T4>() where T21 : IConvertible where T3 : struct where T4 : Enum
 #else
 				int StaticMethod3<T2, T3, T4>() where T2 : IConvertible where T3 : struct where T4 : Enum
 #endif
 #pragma warning restore CS8387
 				{
+#if EXPECTED_OUTPUT
+					return typeof(T21).Name.Length;
+#else
 					return typeof(T2).Name.Length;
+#endif
 				}
 #if CS80
 				static int StaticMethod4<T>(T dd)
@@ -174,14 +182,22 @@ namespace LocalFunctions
 					return typeof(T1).Name.Length + typeof(T2).Name.Length + typeof(T3).Name.Length + typeof(T4).Name.Length + StaticInvokeAsFunc(StaticMethod<float>) + StaticInvokeAsFunc(StaticMethod2<T3, DayOfWeek>);
 				}
 #pragma warning disable CS8387
-#if CS80
+#if CS80 && EXPECTED_OUTPUT
+				static int StaticMethod3<T21, T3, T4>() where T21 : IConvertible where T3 : struct where T4 : Enum
+#elif CS80
 				static int StaticMethod3<T2, T3, T4>() where T2 : IConvertible where T3 : struct where T4 : Enum
+#elif EXPECTED_OUTPUT
+				int StaticMethod3<T21, T3, T4>() where T21 : IConvertible where T3 : struct where T4 : Enum
 #else
 				int StaticMethod3<T2, T3, T4>() where T2 : IConvertible where T3 : struct where T4 : Enum
 #endif
 #pragma warning restore CS8387
 				{
+#if EXPECTED_OUTPUT
+					return typeof(T21).Name.Length;
+#else
 					return typeof(T2).Name.Length;
+#endif
 				}
 #if CS80
 				static int StaticMethod4<T3>()

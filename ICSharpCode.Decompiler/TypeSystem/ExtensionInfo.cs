@@ -117,14 +117,8 @@ namespace ICSharpCode.Decompiler.TypeSystem
 					if (marker == null)
 						continue;
 
-					ITypeParameter[] extensionGroupTypeParameters = new ITypeParameter[markerType.TypeParameterCount];
 					var markerTypeTypeParameters = metadata.GetTypeDefinition((TypeDefinitionHandle)markerType.MetadataToken).GetGenericParameters();
-
-					foreach (var h in markerTypeTypeParameters.WithIndex())
-					{
-						var tp = metadata.GetGenericParameter(h.Item2);
-						extensionGroupTypeParameters[h.Item1] = MetadataTypeParameter.Create(module, markerType, h.Item1, h.Item2);
-					}
+					var extensionGroupTypeParameters = MetadataTypeParameter.Create(module, markerType, markerTypeTypeParameters);
 
 					extensionGroups.Add((marker, extensionGroupTypeParameters));
 

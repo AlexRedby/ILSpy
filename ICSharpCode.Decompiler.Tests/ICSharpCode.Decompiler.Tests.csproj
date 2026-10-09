@@ -124,6 +124,7 @@
     <None Include="testcases\ilpretty\Issue3552.il" />
     <None Include="TestCases\ILPretty\MonoFixed.il" />
     <None Include="TestCases\Correctness\NonGenericConstrainedCallVirt.il" />
+    <None Include="TestCases\Correctness\DuplicateGenericParameterNames.il" />
     <None Include="TestCases\ILPretty\UnknownTypes.il" />
     <None Include="TestCases\ILPretty\EvalOrder.il" />
     <None Include="TestCases\ILPretty\CallIndirect.il" />

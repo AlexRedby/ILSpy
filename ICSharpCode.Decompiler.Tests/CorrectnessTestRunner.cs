@@ -22,7 +22,10 @@ using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Threading.Tasks;
 
+using ICSharpCode.Decompiler.Metadata;
 using ICSharpCode.Decompiler.Tests.Helpers;
+using ICSharpCode.Decompiler.TypeSystem;
+using ICSharpCode.Decompiler.TypeSystem.Implementation;
 
 using NUnit.Framework;
 
@@ -326,6 +329,12 @@ namespace ICSharpCode.Decompiler.Tests
 		}
 
 		[Test]
+		public async Task GenericLocalFunctionNames([ValueSource(nameof(roslyn2OrNewerOptions))] CompilerOptions options)
+		{
+			await RunCS(options: options);
+		}
+
+		[Test]
 		public async Task BitNot([ValueSource(nameof(supportedForce32Bit))] bool force32Bit)
 		{
 			CompilerOptions compiler = CompilerOptions.UseDebug;
@@ -348,6 +357,63 @@ namespace ICSharpCode.Decompiler.Tests
 		public async Task NonGenericConstrainedCallVirt()
 		{
 			await RunIL("NonGenericConstrainedCallVirt.il", CompilerOptions.UseRoslynLatest);
+		}
+
+		[Test]
+		public async Task DuplicateGenericParameterNames()
+		{
+			await RunIL("DuplicateGenericParameterNames.il", CompilerOptions.UseRoslynLatest);
+
+			using var module = new PEFile(Path.Combine(TestCasePath, "DuplicateGenericParameterNames.exe"));
+			var compilation = new SimpleCompilation(module);
+			var duplicate = compilation.FindType(new FullTypeName("Duplicate`2")).GetDefinition();
+			Assert.That(duplicate.TypeParameters.Select(p => p.Name), Is.EqualTo(new[] { "A", "A1" }));
+			Assert.That(duplicate.TypeParameters.Select(p => p.Index), Is.EqualTo(new[] { 0, 1 }));
+			Assert.That(duplicate.TypeParameters.Select(p => p.Owner), Is.All.SameAs(duplicate));
+			Assert.That(duplicate.Fields.Single(f => f.Name == "First").Type, Is.SameAs(duplicate.TypeParameters[0]));
+			Assert.That(duplicate.Fields.Single(f => f.Name == "Second").Type, Is.SameAs(duplicate.TypeParameters[1]));
+			var select = duplicate.Methods.Single(m => m.Name == "Select");
+			Assert.That(select.Parameters[0].Type, Is.SameAs(duplicate.TypeParameters[0]));
+			Assert.That(select.Parameters[1].Type, Is.SameAs(duplicate.TypeParameters[1]));
+			Assert.That(select.ReturnType, Is.SameAs(duplicate.TypeParameters[1]));
+
+			var program = compilation.FindType(new FullTypeName("Program")).GetDefinition();
+			var method = program.Methods.Single(m => m.Name == "Method");
+			Assert.That(method.TypeParameters.Select(p => p.Name), Is.EqualTo(new[] { "A", "A1" }));
+			Assert.That(method.TypeParameters.Select(p => p.Index), Is.EqualTo(new[] { 0, 1 }));
+			Assert.That(method.TypeParameters.Select(p => p.Owner), Is.All.SameAs(method));
+			Assert.That(method.TypeParameters.Select(p => p.OwnerType), Is.All.EqualTo(SymbolKind.Method));
+
+			var reserved = compilation.FindType(new FullTypeName("Reserved`4")).GetDefinition();
+			Assert.That(reserved.TypeParameters.Select(p => p.Name), Is.EqualTo(new[] { "A", "A2", "A1", "A3" }));
+			var reverse = compilation.FindType(new FullTypeName("ReverseReserved`3")).GetDefinition();
+			Assert.That(reverse.TypeParameters.Select(p => p.Name), Is.EqualTo(new[] { "A1", "A", "A2" }));
+
+			var outer = compilation.FindType(new FullTypeName("Outer`1")).GetDefinition();
+			var inner = outer.NestedTypes.Single(t => t.Name == "Inner");
+			Assert.That(inner.TypeParameters.Select(p => p.Name), Is.EqualTo(new[] { "A", "A1" }));
+			Assert.That(inner.TypeParameters[0], Is.SameAs(outer.TypeParameters[0]));
+			Assert.That(inner.TypeParameters[1].Owner, Is.SameAs(inner));
+			Assert.That(inner.TypeParameters[1].Index, Is.EqualTo(1));
+			var leaf = inner.NestedTypes.Single();
+			Assert.That(leaf.TypeParameters.Select(p => p.Name), Is.EqualTo(new[] { "A", "A1", "A2" }));
+			Assert.That(leaf.TypeParameters[0], Is.SameAs(outer.TypeParameters[0]));
+			Assert.That(leaf.TypeParameters[1], Is.SameAs(inner.TypeParameters[1]));
+			Assert.That(leaf.TypeParameters[2].Owner, Is.SameAs(leaf));
+			Assert.That(leaf.TypeParameters[2].Index, Is.EqualTo(2));
+			Assert.That(outer.NestedTypes.Single(t => t.Name == "Inherited").TypeParameters[0], Is.SameAs(outer.TypeParameters[0]));
+			var outerMethod = outer.Methods.Single(m => m.Name == "Method");
+			Assert.That(outerMethod.TypeParameters.Select(p => p.Name), Is.EqualTo(new[] { "A2", "A1" }));
+
+			var constrained = compilation.FindType(new FullTypeName("Constrained`2")).GetDefinition();
+			Assert.That(constrained.TypeParameters.Select(p => p.Name), Is.EqualTo(new[] { "A", "A1" }));
+			Assert.That(constrained.TypeParameters[1].DirectBaseTypes.First(), Is.SameAs(constrained.TypeParameters[0]));
+			var constrainedMethod = program.Methods.Single(m => m.Name == "ConstrainedMethod");
+			Assert.That(constrainedMethod.TypeParameters[1].DirectBaseTypes.First(), Is.SameAs(constrainedMethod.TypeParameters[0]));
+
+			var valid = compilation.FindType(new FullTypeName("Valid`2")).GetDefinition();
+			Assert.That(valid.TypeParameters.Select(p => p.Name), Is.EqualTo(new[] { "T", "A1" }));
+			Assert.That(valid.Methods.Single().TypeParameters.Select(p => p.Name), Is.EqualTo(new[] { "U", "V" }));
 		}
 
 		[Test, Platform("Win")] // 32BITREQUIRED needs the Windows 32-bit runtime
