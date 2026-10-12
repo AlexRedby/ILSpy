@@ -92,6 +92,55 @@ public sealed class TokenizedTypeReferenceTests
 
 	[TestCase(false)]
 	[TestCase(true)]
+	public void RecursivePatternMembersRetainIdentityAndHonorTokenization(bool tokenize)
+	{
+		var module = TypeSystemLoaderTests.TestAssembly;
+		var decompiler = new CSharpDecompiler(module,
+			new UniversalAssemblyResolver(module.FileName, false, module.Metadata.DetectTargetFrameworkId()),
+			new DecompilerSettings { TokenizeNames = tokenize });
+		var tree = decompiler.DecompileType(new FullTypeName(typeof(TokenizedPatternSample).FullName));
+
+		AssertPattern(nameof(TokenizedPatternSample.MatchProperty), nameof(TokenizedPatternSample.Number));
+		AssertPattern(nameof(TokenizedPatternSample.MatchField), nameof(TokenizedPatternSample.Value));
+		AssertPattern(nameof(TokenizedPatternSample.MatchNested), nameof(TokenizedPatternSample.Child),
+			nameof(TokenizedPatternSample.Number), nameof(TokenizedPatternSample.Value));
+		AssertPattern(nameof(TokenizedPatternSample.MatchExternal), nameof(string.Length));
+		AssertPattern(nameof(TokenizedPatternSample.MatchNestedExternal), nameof(TokenizedPatternSample.Text), nameof(string.Length));
+
+		void AssertPattern(string methodName, params string[] memberNames)
+		{
+			var method = tree.Descendants.OfType<MethodDeclaration>().Single(m => m.GetSymbol()?.Name == methodName);
+			var patterns = method.Descendants.OfType<RecursivePatternExpression>().ToArray();
+			Assert.That(patterns, Is.Not.Empty, method.ToString());
+			var arguments = patterns.SelectMany(p => p.SubPatterns).OfType<NamedArgumentExpression>().ToArray();
+			Assert.That(arguments, Has.Length.EqualTo(memberNames.Length), method.ToString());
+			Assert.That(arguments.Select(a => (a.GetResolveResult() as MemberResolveResult)?.Member.Name),
+				Is.EquivalentTo(memberNames), methodName);
+			foreach (var argument in arguments)
+			{
+				Assert.That(argument.GetResolveResult(), Is.TypeOf<MemberResolveResult>(), methodName);
+				var member = ((MemberResolveResult)argument.GetResolveResult()).Member;
+				bool own = member.Name != nameof(string.Length);
+				Assert.That(member.ParentModule == decompiler.TypeSystem.MainModule, Is.EqualTo(own), member.Name);
+				Assert.That(member.MetadataToken.IsNil, Is.False, member.Name);
+				string prefix = member is IProperty ? "prop" : "field";
+				string expected = tokenize && own ? $"{prefix}_{MetadataTokens.GetToken(member.MetadataToken):X8}" : member.Name;
+				Assert.That(argument.Name, Is.EqualTo(expected), member.Name);
+				if (own)
+				{
+					var declaration = tree.Descendants.OfType<EntityDeclaration>()
+						.Single(d => d.GetSymbol() == member.MemberDefinition);
+					Assert.That(declaration.GetSymbol(), Is.SameAs(member.MemberDefinition), member.Name);
+					string declarationName = declaration is PropertyDeclaration property
+						? property.Name : ((FieldDeclaration)declaration).Variables.Single().Name;
+					Assert.That(declarationName, Is.EqualTo(expected), member.Name);
+				}
+			}
+		}
+	}
+
+	[TestCase(false)]
+	[TestCase(true)]
 	public void MemberTokensUseOwnTokenNamesAndRetainExternalNames(bool tokenize)
 	{
 		using var assembly = Cecil.AssemblyDefinition.CreateAssembly(
@@ -170,4 +219,42 @@ public class TokenizedMemberSample
 public static class TokenizedMemberExtensions
 {
 	public static int Extend(this TokenizedMemberSample sample) => sample.GetHashCode();
+}
+
+public class TokenizedPatternSample
+{
+	public int Number { get; set; }
+	public int Value;
+	public TokenizedPatternSample Child { get; set; }
+	public string Text { get; set; }
+	public static int MatchProperty(object sample)
+	{
+		if (sample is TokenizedPatternSample { Number: var number })
+			return number;
+		return -1;
+	}
+	public static int MatchField(object sample)
+	{
+		if (sample is TokenizedPatternSample { Value: var value })
+			return value;
+		return -1;
+	}
+	public static int MatchNested(object sample)
+	{
+		if (sample is TokenizedPatternSample { Child: { Number: var number, Value: var value } })
+			return number + value;
+		return -1;
+	}
+	public static int MatchExternal(object sample)
+	{
+		if (sample is string { Length: var length })
+			return length;
+		return -1;
+	}
+	public static int MatchNestedExternal(object sample)
+	{
+		if (sample is TokenizedPatternSample { Text: { Length: var length } })
+			return length;
+		return -1;
+	}
 }

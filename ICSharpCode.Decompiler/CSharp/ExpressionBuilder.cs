@@ -5443,7 +5443,7 @@ namespace ICSharpCode.Decompiler.CSharp
 								continue;
 							}
 							recursivePatternExpression.SubPatterns.Add(
-								new NamedArgumentExpression { Name = member!.Name, Expression = TranslatePattern(subPattern, member.ReturnType) }
+								new NamedArgumentExpression { Name = GetMemberName(member!), Expression = TranslatePattern(subPattern, member!.ReturnType) }
 									.WithRR(new MemberResolveResult(null, member))
 							);
 						}
