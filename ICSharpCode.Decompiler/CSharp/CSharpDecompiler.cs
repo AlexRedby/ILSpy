@@ -2286,7 +2286,8 @@ namespace ICSharpCode.Decompiler.CSharp
 				}
 				if (methodDefinition.HasBody())
 				{
-					DecompileBody(method, methodDecl, decompileRun, decompilationContext, extensionInfo);
+					DecompileBody(method, methodDecl is PropertyDeclaration projected ? projected.Getter! : methodDecl,
+						decompileRun, decompilationContext, extensionInfo);
 				}
 				else if (!method.IsAbstract && method.DeclaringType.Kind != TypeKind.Interface)
 				{
@@ -2300,7 +2301,7 @@ namespace ICSharpCode.Decompiler.CSharp
 				{
 					SetNewModifier(methodDecl);
 				}
-				else if (!method.IsStatic && !method.IsExplicitInterfaceImplementation
+				else if (methodDecl is not PropertyDeclaration && !method.IsStatic && !method.IsExplicitInterfaceImplementation
 					&& !method.IsVirtual && method.IsOverride
 					&& InheritanceHelper.GetBaseMember(method) == null
 					&& TypeSystemAstBuilder.FindBaseAccessorMethod(method) == null && IsTypeHierarchyKnown(method.DeclaringType))

@@ -611,6 +611,15 @@ namespace ICSharpCode.Decompiler.CSharp
 			// GetRequiredTransformationsForCall always assigns foundMethod (the resolved overload or 'method').
 			Debug.Assert(foundMethod != null);
 
+			if (TypeSystemAstBuilder.GetProjectedGetterProperty(method) is IProperty projectedProperty)
+			{
+				// Bind the property on the original declaring type so derived members cannot hide it.
+				if (target.Expression is not BaseReferenceExpression)
+					target = target.ConvertTo(method.DeclaringType, expressionBuilder);
+				return new MemberReferenceExpression(target.Expression, projectedProperty.Name)
+					.WithRR(new MemberResolveResult(target.ResolveResult, method));
+			}
+
 			// Note: after this, 'method' and 'foundMethod' may differ,
 			// but as far as allowed by IsAppropriateCallTarget().
 
@@ -1711,7 +1720,7 @@ namespace ICSharpCode.Decompiler.CSharp
 		{
 			// Accessors cannot be directly referenced as method group in C#
 			// see https://github.com/icsharpcode/ILSpy/issues/1741#issuecomment-540179101
-			if (targetMethod.IsAccessor)
+			if (targetMethod.IsAccessor || TypeSystemAstBuilder.GetProjectedGetterProperty(targetMethod) != null)
 				return false;
 			if (targetMethod.IsStatic)
 			{

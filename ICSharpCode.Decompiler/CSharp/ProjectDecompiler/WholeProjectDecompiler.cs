@@ -368,6 +368,7 @@ namespace ICSharpCode.Decompiler.CSharp.ProjectDecompiler
 				w.WriteLine("    public sealed class DecompiledNameAttribute : Attribute");
 				w.WriteLine("    {");
 				w.WriteLine("        public string Name { get; }");
+				w.WriteLine("        public int MetadataToken { get; set; }");
 				w.WriteLine("        public DecompiledNameAttribute(string name) { Name = name; }");
 				w.WriteLine("    }");
 				w.WriteLine("}");

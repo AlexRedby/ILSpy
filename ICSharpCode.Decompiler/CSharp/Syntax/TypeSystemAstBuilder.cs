@@ -2130,6 +2130,29 @@ namespace ICSharpCode.Decompiler.CSharp.Syntax
 			return baseMethod;
 		}
 
+		internal static IProperty? GetProjectedGetterProperty(IMethod method)
+		{
+			if (!method.IsOverride || method.IsAccessor || method.IsStatic || method.IsExplicitInterfaceImplementation
+				|| method.Parameters.Count != 0 || method.TypeParameters.Count != 0)
+				return null;
+			var visited = new HashSet<IMethod>();
+			var current = method;
+			while (visited.Add((IMethod)current.MemberDefinition) && FindBaseVirtualMethod(current) is IMethod parent)
+			{
+				if (parent.AccessorOwner is IProperty property)
+				{
+					if (property.ParentModule == method.Compilation.MainModule || property.IsIndexer
+						|| property.Parameters.Count != 0 || !parent.Equals(property.Getter)
+						|| !CanUsePropertySyntax(property)
+						|| method.DeclaringType.GetMembers(m => m.Name == property.Name, GetMemberOptions.IgnoreInheritedMembers).Any())
+						return null;
+					return property;
+				}
+				current = parent;
+			}
+			return null;
+		}
+
 		static IMethod? FindBaseVirtualMethod(IMethod accessor)
 		{
 			if (!accessor.IsOverride)
@@ -2168,6 +2191,8 @@ namespace ICSharpCode.Decompiler.CSharp.Syntax
 				case SymbolKind.Event:
 					return ConvertEvent((IEvent)entity);
 				case SymbolKind.Method:
+					if (GetProjectedGetterProperty((IMethod)entity) is IProperty baseProperty)
+						return ConvertProjectedGetter((IMethod)entity, baseProperty);
 					return ConvertMethod((IMethod)entity);
 				case SymbolKind.Operator:
 					return ConvertOperator((IMethod)entity);
@@ -2691,6 +2716,22 @@ namespace ICSharpCode.Decompiler.CSharp.Syntax
 			}
 		}
 
+		PropertyDeclaration ConvertProjectedGetter(IMethod method, IProperty baseProperty)
+		{
+			var getter = ConvertAccessor(method, MethodSemanticsAttributes.Getter, method.Accessibility, false)!;
+			if (ShowAttributes && TokenizeNames)
+				AddDecompiledNameAttribute(getter.Attributes, method.Name, MetadataTokens.GetToken(method.MetadataToken));
+			var returnType = ConvertType(method.ReturnType);
+			if (method.ReturnTypeIsRefReadOnly && returnType is ComposedType ct && ct.HasRefSpecifier)
+				ct.HasReadOnlySpecifier = true;
+			return new PropertyDeclaration {
+				Name = baseProperty.Name,
+				Modifiers = GetMemberModifiers(method),
+				ReturnType = returnType,
+				Getter = getter
+			};
+		}
+
 		MethodDeclaration ConvertMethod(IMethod method)
 		{
 			MethodDeclaration decl = new MethodDeclaration();
@@ -2945,11 +2986,13 @@ namespace ICSharpCode.Decompiler.CSharp.Syntax
 		}
 		#endregion
 
-		internal static void AddDecompiledNameAttribute(AstNodeCollection<AttributeSection> attributes, string originalName)
+		internal static void AddDecompiledNameAttribute(AstNodeCollection<AttributeSection> attributes, string originalName, int? metadataToken = null)
 		{
 			var attr = new Attribute();
 			attr.Type = new SimpleType("DecompiledName");
 			attr.Arguments.Add(new PrimitiveExpression(originalName));
+			if (metadataToken.HasValue)
+				attr.Arguments.Add(new NamedExpression("MetadataToken", new PrimitiveExpression(metadataToken.Value, LiteralFormat.HexadecimalNumber)));
 			attributes.Add(new AttributeSection(attr));
 		}
 
