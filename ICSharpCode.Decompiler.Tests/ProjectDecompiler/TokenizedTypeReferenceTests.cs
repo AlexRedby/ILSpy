@@ -227,34 +227,50 @@ public class TokenizedPatternSample
 	public int Value;
 	public TokenizedPatternSample Child { get; set; }
 	public string Text { get; set; }
+	// Multiple uses keep captures from being inlined before pattern recovery.
 	public static int MatchProperty(object sample)
 	{
 		if (sample is TokenizedPatternSample { Number: var number })
+		{
+			Console.WriteLine(number);
 			return number;
+		}
 		return -1;
 	}
 	public static int MatchField(object sample)
 	{
 		if (sample is TokenizedPatternSample { Value: var value })
+		{
+			Console.WriteLine(value);
 			return value;
+		}
 		return -1;
 	}
 	public static int MatchNested(object sample)
 	{
 		if (sample is TokenizedPatternSample { Child: { Number: var number, Value: var value } })
+		{
+			Console.WriteLine(number + value);
 			return number + value;
+		}
 		return -1;
 	}
 	public static int MatchExternal(object sample)
 	{
 		if (sample is string { Length: var length })
+		{
+			Console.WriteLine(length);
 			return length;
+		}
 		return -1;
 	}
 	public static int MatchNestedExternal(object sample)
 	{
 		if (sample is TokenizedPatternSample { Text: { Length: var length } })
+		{
+			Console.WriteLine(length);
 			return length;
+		}
 		return -1;
 	}
 }
