@@ -48,9 +48,9 @@ namespace ICSharpCode.Decompiler.CSharp.Transforms
 						continue;
 					string doc = provider.GetDocumentation(entity);
 					if (doc == null && entity is IMethod { AccessorOwner: IProperty owner } accessor
-						&& owner.IsParameterizedProperty() && accessor.Equals(owner.Getter ?? owner.Setter))
+						&& !TypeSystemAstBuilder.CanUsePropertySyntax(owner) && accessor.Equals(owner.Getter ?? owner.Setter))
 					{
-						// A parameterized property is decompiled to its accessor methods; show the
+						// A property decompiled to its accessor methods shows the
 						// property's documentation on the first accessor.
 						doc = provider.GetDocumentation(owner);
 					}

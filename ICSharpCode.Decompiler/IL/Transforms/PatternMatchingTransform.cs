@@ -23,6 +23,7 @@ using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using System.Reflection;
 
+using ICSharpCode.Decompiler.CSharp.Syntax;
 using ICSharpCode.Decompiler.IL.ControlFlow;
 using ICSharpCode.Decompiler.TypeSystem;
 using ICSharpCode.Decompiler.Util;
@@ -490,7 +491,7 @@ namespace ICSharpCode.Decompiler.IL.Transforms
 					AccessorOwner: { } _member
 				},
 				Arguments: [var _target]
-			})
+			} && _member is IProperty property && TypeSystemAstBuilder.CanUsePropertySyntax(property))
 			{
 				target = _target;
 				member = _member;

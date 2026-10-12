@@ -23,6 +23,7 @@ using System.Collections.Generic;
 using System.Linq;
 
 using ICSharpCode.Decompiler.CSharp.Resolver;
+using ICSharpCode.Decompiler.CSharp.Syntax;
 using ICSharpCode.Decompiler.Semantics;
 using ICSharpCode.Decompiler.TypeSystem;
 using ICSharpCode.Decompiler.Util;
@@ -475,6 +476,8 @@ namespace ICSharpCode.Decompiler.IL.Transforms
 
 		private static bool CanBeUsedInInitializer(IProperty property, ITypeResolveContext? resolveContext, AccessPathKind kind)
 		{
+			if (!TypeSystemAstBuilder.CanUsePropertySyntax(property))
+				return false;
 			if (property.CanSet && (property.Accessibility == property.Setter.Accessibility || IsAccessorAccessible(property.Setter, resolveContext)))
 				return true;
 			return kind != AccessPathKind.Setter;

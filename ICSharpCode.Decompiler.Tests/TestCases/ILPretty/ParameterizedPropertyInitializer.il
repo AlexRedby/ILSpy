@@ -32,8 +32,8 @@
         .set instance void ParameterizedPropertyInitializer::set_Foo(int32, int32)
     }
 
-    // The same, with an index parameter whose argument is its declared default. An index
-    // initializer still has to write the index out: there is no member-access form to fall back to.
+    // The same, with an index parameter whose argument is its declared default.
+    // The setter call still has to supply it before the required value parameter.
     .method public hidebysig specialname instance int32 get_Bar ([opt] int32 x) cil managed
     {
         .param [1] = int32(7)

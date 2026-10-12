@@ -1494,7 +1494,7 @@ namespace ICSharpCode.Decompiler.CSharp
 		/// declare accessors that name them differently, but other languages can.</summary>
 		internal static IReadOnlyList<IParameter> GetNamedParameters(IMethod method)
 		{
-			return method.AccessorOwner is IProperty { IsIndexer: true } indexer
+			return method.AccessorOwner is IProperty { IsIndexer: true } indexer && TypeSystemAstBuilder.CanUsePropertySyntax(indexer)
 				? indexer.Parameters
 				: method.Parameters;
 		}
@@ -1505,6 +1505,8 @@ namespace ICSharpCode.Decompiler.CSharp
 		static bool IsWrittenAsMemberAccess(IMethod method)
 		{
 			if (!method.IsAccessor)
+				return false;
+			if (method.AccessorOwner is IProperty property && !TypeSystemAstBuilder.CanUsePropertySyntax(property))
 				return false;
 			if (method.AccessorOwner!.SymbolKind == SymbolKind.Indexer)
 				return true;

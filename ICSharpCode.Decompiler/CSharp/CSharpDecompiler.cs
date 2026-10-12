@@ -1497,9 +1497,9 @@ namespace ICSharpCode.Decompiler.CSharp
 					case HandleKind.PropertyDefinition:
 						IProperty property = module.GetDefinition((PropertyDefinitionHandle)entity);
 						var propertyExtensionInfo = property.ResolveExtensionInfo();
-						if (property.IsParameterizedProperty())
+						if (!TypeSystemAstBuilder.CanUsePropertySyntax(property))
 						{
-							syntaxTree.Members.AddRange(DecompileParameterizedProperty(property, decompileRun, new SimpleTypeResolveContext(property), propertyExtensionInfo));
+							syntaxTree.Members.AddRange(DecompilePropertyAccessors(property, decompileRun, new SimpleTypeResolveContext(property), propertyExtensionInfo));
 						}
 						else
 						{
@@ -2085,9 +2085,9 @@ namespace ICSharpCode.Decompiler.CSharp
 						{
 							return;
 						}
-						if (property.IsParameterizedProperty())
+						if (!TypeSystemAstBuilder.CanUsePropertySyntax(property))
 						{
-							foreach (var accessorDecl in DecompileParameterizedProperty(property, decompileRun, decompilationContext, null))
+							foreach (var accessorDecl in DecompilePropertyAccessors(property, decompileRun, decompilationContext, null))
 							{
 								entityMap.Add(property, accessorDecl);
 								EnqueueReferencedMembers(accessorDecl);
@@ -2292,8 +2292,8 @@ namespace ICSharpCode.Decompiler.CSharp
 				{
 					methodDecl.Modifiers |= Modifiers.Extern;
 				}
-				// Accessors qualify only when they are emitted as ordinary methods (parameterized
-				// properties); an Accessor node cannot carry the 'new' modifier.
+				// Accessors qualify only when emitted as ordinary methods;
+				// an Accessor node cannot carry the 'new' modifier.
 				if ((method.SymbolKind == SymbolKind.Method || (method.SymbolKind == SymbolKind.Accessor && methodDecl is MethodDeclaration))
 					&& !method.IsExplicitInterfaceImplementation
 					&& methodDefinition.HasFlag(System.Reflection.MethodAttributes.Virtual) == methodDefinition.HasFlag(System.Reflection.MethodAttributes.NewSlot))
@@ -2302,7 +2302,8 @@ namespace ICSharpCode.Decompiler.CSharp
 				}
 				else if (!method.IsStatic && !method.IsExplicitInterfaceImplementation
 					&& !method.IsVirtual && method.IsOverride
-					&& InheritanceHelper.GetBaseMember(method) == null && IsTypeHierarchyKnown(method.DeclaringType))
+					&& InheritanceHelper.GetBaseMember(method) == null
+					&& TypeSystemAstBuilder.FindBaseAccessorMethod(method) == null && IsTypeHierarchyKnown(method.DeclaringType))
 				{
 					methodDecl.Modifiers &= ~Modifiers.Override;
 					if (!method.DeclaringTypeDefinition!.IsSealed)
@@ -2817,13 +2818,13 @@ namespace ICSharpCode.Decompiler.CSharp
 
 		/// <summary>
 		/// Decompiles a parameterized property (a named property with parameters, e.g. from
-		/// VB.NET) into declarations of its accessor methods, because C# has no syntax for
-		/// such properties. The property-level attributes are placed on the first accessor
+		/// VB.NET) or properties overriding regular methods into accessor declarations,
+		/// because C# has no syntax for such properties. Property-level attributes are placed on the first accessor
 		/// under the 'property:' attribute target, which is not valid for methods and is
 		/// therefore ignored by the C# compiler (CS0657): recompilation neither loses the
 		/// attributes from the source nor misapplies them to the accessor method.
 		/// </summary>
-		List<EntityDeclaration> DecompileParameterizedProperty(IProperty property, DecompileRun decompileRun, ITypeResolveContext decompilationContext, ExtensionInfo? extensionInfo)
+		List<EntityDeclaration> DecompilePropertyAccessors(IProperty property, DecompileRun decompileRun, ITypeResolveContext decompilationContext, ExtensionInfo? extensionInfo)
 		{
 			var result = new List<EntityDeclaration>(2);
 			var typeSystemAstBuilder = CreateAstBuilder(decompileRun.Settings, module);
@@ -2834,7 +2835,9 @@ namespace ICSharpCode.Decompiler.CSharp
 				var accessorDecl = DoDecompile(accessor, decompileRun, decompilationContext.WithCurrentMember(accessor), extensionInfo);
 				if (result.Count == 0)
 				{
-					accessorDecl.AddLeadingTrivia(new Comment($" C# has no syntax for parameterized property '{property.Name}'."));
+					accessorDecl.AddLeadingTrivia(new Comment(property.IsParameterizedProperty()
+						? $" C# has no syntax for parameterized property '{property.Name}'."
+						: $" C# cannot express property '{property.Name}' overriding regular methods."));
 					var attributes = property.GetAttributes().Select(typeSystemAstBuilder.ConvertAttribute).ToList();
 					if (attributes.Count > 0)
 					{

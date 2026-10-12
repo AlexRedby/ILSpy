@@ -2033,6 +2033,50 @@ namespace ICSharpCode.Decompiler.CSharp.Syntax
 			}
 		}
 
+		internal static bool CanUsePropertySyntax(IProperty property)
+		{
+			var visited = new HashSet<IProperty>();
+			return Check(property);
+
+			bool Check(IProperty current)
+			{
+				if (!visited.Add(current))
+					return true;
+				if (current.IsParameterizedProperty())
+					return false;
+				foreach (var accessor in new[] { current.Getter, current.Setter })
+				{
+					var baseMethod = accessor == null ? null : FindBaseAccessorMethod(accessor);
+					// CLR accessor slots can override regular methods, which C# property syntax cannot express.
+					if (baseMethod != null && (!baseMethod.IsAccessor
+						|| baseMethod.AccessorOwner is IProperty owner && !Check(owner)))
+						return false;
+				}
+				return true;
+			}
+		}
+
+		internal static IMethod? FindBaseAccessorMethod(IMethod accessor)
+		{
+			if (!accessor.IsAccessor || !accessor.IsOverride)
+				return null;
+			foreach (var baseType in accessor.DeclaringType.GetNonInterfaceBaseTypes().Reverse())
+			{
+				if (baseType.GetDefinition() == accessor.DeclaringTypeDefinition)
+					continue;
+				bool Matches(IMethod method) => method.IsOverridable
+					&& method.Accessibility > Accessibility.Private && method.Name == accessor.Name
+					&& method.TypeParameters.Count == accessor.TypeParameters.Count
+					&& method.ReturnType.Equals(accessor.ReturnType)
+					&& ParameterListComparer.Instance.Equals(method.Parameters, accessor.Parameters);
+				var candidates = baseType.GetMethods(Matches, GetMemberOptions.IgnoreInheritedMembers)
+					.Concat(baseType.GetAccessors(Matches, GetMemberOptions.IgnoreInheritedMembers)).ToArray();
+				if (candidates.Length != 0)
+					return candidates.Length == 1 ? candidates[0] : null;
+			}
+			return null;
+		}
+
 		public EntityDeclaration ConvertEntity(IEntity entity)
 		{
 			if (entity == null)
@@ -2059,9 +2103,9 @@ namespace ICSharpCode.Decompiler.CSharp.Syntax
 					return ConvertDestructor((IMethod)entity);
 				case SymbolKind.Accessor:
 					IMethod accessor = (IMethod)entity;
-					if (accessor.AccessorOwner is IProperty owner && owner.IsParameterizedProperty())
+					if (accessor.AccessorOwner is IProperty owner && !CanUsePropertySyntax(owner))
 					{
-						// C# cannot represent the parameterized property itself; its accessors
+						// C# cannot represent the property itself; its accessors
 						// are declared as ordinary methods.
 						return ConvertMethod(accessor);
 					}

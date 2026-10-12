@@ -25,6 +25,7 @@ using System.Linq;
 using System.Linq.Expressions;
 
 using ICSharpCode.Decompiler.CSharp;
+using ICSharpCode.Decompiler.CSharp.Syntax;
 using ICSharpCode.Decompiler.CSharp.Transforms;
 using ICSharpCode.Decompiler.TypeSystem;
 using ICSharpCode.Decompiler.Util;
@@ -190,9 +191,9 @@ namespace ICSharpCode.Decompiler.IL.Transforms
 					return false;
 				if (!call.Method.Equals(property.Setter))
 					return false;
-				if (!(property.IsIndexer || property.Setter.Parameters.Count == 1))
+				if (!TypeSystemAstBuilder.CanUsePropertySyntax(property))
 				{
-					// this is a parameterized property, which cannot be expressed as C# code.
+					// This property cannot be expressed as C# code.
 					// setter calls are not valid in expression context, if property syntax cannot be used.
 					return false;
 				}
@@ -281,7 +282,8 @@ namespace ICSharpCode.Decompiler.IL.Transforms
 			if (setterCall.OpCode != getterCall.OpCode)
 				return false;
 			var owner = getterCall.Method.AccessorOwner as IProperty;
-			if (owner == null || !IsSameMember(getterCall.Method, owner.Getter) || !IsSameMember(setterCall.Method, owner.Setter))
+			if (owner == null || !TypeSystemAstBuilder.CanUsePropertySyntax(owner)
+				|| !IsSameMember(getterCall.Method, owner.Getter) || !IsSameMember(setterCall.Method, owner.Setter))
 				return false;
 			if (setterCall.Arguments.Count != getterCall.Arguments.Count + 1)
 				return false;

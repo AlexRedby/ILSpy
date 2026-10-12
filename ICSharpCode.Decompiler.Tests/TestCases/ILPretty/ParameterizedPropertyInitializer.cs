@@ -28,11 +28,15 @@ public class ParameterizedPropertyInitializer
 
 	public static void Use()
 	{
-		Consume(new ParameterizedPropertyInitializer { [7] = 5 });
+		ParameterizedPropertyInitializer parameterizedPropertyInitializer = new ParameterizedPropertyInitializer();
+		parameterizedPropertyInitializer.set_Foo(7, 5);
+		Consume(parameterizedPropertyInitializer);
 	}
 
 	public static void UseOptional()
 	{
-		Consume(new ParameterizedPropertyInitializer { [7] = 5 });
+		ParameterizedPropertyInitializer parameterizedPropertyInitializer = new ParameterizedPropertyInitializer();
+		parameterizedPropertyInitializer.set_Bar(7, 5);
+		Consume(parameterizedPropertyInitializer);
 	}
 }

@@ -463,6 +463,10 @@ namespace ICSharpCode.Decompiler.Tests
 		public async Task ParameterizedPropertyInitializer()
 		{
 			await Run();
+			var compilation = await Tester.CompileCSharp(
+				Path.Combine(TestCasePath, "ParameterizedPropertyInitializer.cs"),
+				CompilerOptions.UseRoslynLatest | CompilerOptions.Library).ConfigureAwait(false);
+			compilation.DeleteTempFiles();
 		}
 
 		[Test]
