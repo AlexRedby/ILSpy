@@ -21,6 +21,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Reflection.Metadata.Ecma335;
+using System.Threading.Tasks;
 
 using ICSharpCode.Decompiler.CSharp;
 using ICSharpCode.Decompiler.CSharp.Syntax;
@@ -327,10 +328,268 @@ public sealed class AccessorOverrideProjectionTests
 		}
 	}
 
+	[TestCase(Getter, false, false)]
+	[TestCase(Getter, false, true)]
+	[TestCase(Setter, false, false)]
+	[TestCase(Setter, false, true)]
+	[TestCase(Getter | Setter, false, false)]
+	[TestCase(Getter | Setter, false, true)]
+	[TestCase(Getter, true, false)]
+	[TestCase(Getter, true, true)]
+	[TestCase(Setter, true, false)]
+	[TestCase(Setter, true, true)]
+	[TestCase(Getter | Setter, true, false)]
+	[TestCase(Getter | Setter, true, true)]
+	public void RegularOverridesProjectBothEndsOfPropertyFamily(int accessors, bool descendant, bool tokenize)
+	{
+		CheckPropertyFamily(accessors, descendant, newSlot: false, tokenize);
+	}
+
+	[TestCase(Getter, false)]
+	[TestCase(Getter, true)]
+	[TestCase(Setter, false)]
+	[TestCase(Setter, true)]
+	[TestCase(Getter | Setter, false)]
+	[TestCase(Getter | Setter, true)]
+	public void NewSlotRegularMethodsDoNotProjectBaseProperty(int accessors, bool tokenize)
+	{
+		CheckPropertyFamily(accessors, descendant: false, newSlot: true, tokenize);
+	}
+
+	[TestCase(false)]
+	[TestCase(true)]
+	public void GetterOnlyOverrideProjectsSetterAndNormalPropertySibling(bool tokenize)
+	{
+		CheckPropertyFamily(Getter, descendant: false, newSlot: false, tokenize, sibling: true);
+	}
+
+	[TestCase(false)]
+	[TestCase(true)]
+	public void ExternalPropertyBaseKeepsRegularOverrideFallback(bool tokenize)
+	{
+		using var external = CreateAssembly(Getter, Getter, baseHasProperty: true);
+		external.Name.Name = "ExternalAccessorBase";
+		external.MainModule.Name = "ExternalAccessorBase.dll";
+		foreach (var type in external.MainModule.Types.Where(t => t.Name != "Base" && t.Name != "<Module>").ToArray())
+			external.MainModule.Types.Remove(type);
+		var externalBase = external.MainModule.Types.Single(t => t.Name == "Base");
+		using var assembly = CreateAssembly(Getter, Getter, baseHasProperty: true);
+		var module = assembly.MainModule;
+		var baseType = module.Types.Single(t => t.Name == "Base");
+		var derived = module.Types.Single(t => t.Name == "Derived");
+		derived.BaseType = module.ImportReference(externalBase);
+		derived.Properties.Clear();
+		var getter = derived.Methods.Single(m => m.Name == "get_Title");
+		getter.IsSpecialName = false;
+		getter.SemanticsAttributes = Cecil.MethodSemanticsAttributes.None;
+		foreach (var type in module.Types)
+		{
+			foreach (var method in type.Methods)
+			{
+				foreach (var parameter in method.Parameters.Where(p => p.ParameterType == baseType))
+					parameter.ParameterType = derived.BaseType;
+				foreach (var instruction in method.Body.Instructions)
+				{
+					if (instruction.Operand is Cecil.MethodReference target && target.DeclaringType == baseType)
+						instruction.Operand = module.ImportReference(externalBase.Methods.Single(m => m.Name == target.Name));
+				}
+			}
+		}
+		module.Types.Remove(baseType);
+		var directory = Directory.CreateTempSubdirectory("AccessorExternal-");
+		try
+		{
+			string externalPath = Path.Combine(directory.FullName, external.MainModule.Name);
+			external.Write(externalPath);
+			using var input = new MemoryStream();
+			assembly.Write(input);
+			input.Position = 0;
+			using var peFile = new PEFile("AccessorOverride.dll", input);
+			var resolver = new UniversalAssemblyResolver(null, false, $".NETCoreApp,Version=v{Environment.Version.Major}.0");
+			resolver.AddSearchDirectory(directory.FullName);
+			resolver.AddSearchDirectory(Path.GetDirectoryName(typeof(object).Assembly.Location));
+			var decompiler = new CSharpDecompiler(peFile, resolver, new DecompilerSettings { TokenizeNames = tokenize });
+			var types = decompiler.TypeSystem.MainModule.TypeDefinitions.Where(t => t.Namespace == "AccessorFixture").ToArray();
+			var derivedType = types.Single(t => t.Name == "Derived");
+			var baseProperty = derivedType.DirectBaseTypes.Single().GetProperties().Single();
+			using var externalFile = baseProperty.ParentModule.MetadataFile;
+			Assert.That(baseProperty.ParentModule, Is.Not.SameAs(decompiler.TypeSystem.MainModule));
+			Assert.That(TypeSystemAstBuilder.CanUsePropertySyntax(baseProperty), Is.True);
+			var tree = decompiler.DecompileTypes(types.Select(t => (System.Reflection.Metadata.TypeDefinitionHandle)t.MetadataToken));
+			var method = tree.Descendants.OfType<MethodDeclaration>().Single(m => m.GetSymbol()?.Name == "get_Title");
+			Assert.That(method.Modifiers.HasFlag(Modifiers.Override), Is.False, tree.ToString());
+			Assert.That(method.Modifiers.HasFlag(Modifiers.Virtual), Is.True);
+			Assert.That(method.Name, Is.EqualTo(Name((IMethod)method.GetSymbol(), "method", tokenize)));
+			var caller = tree.Descendants.OfType<MethodDeclaration>().Single(m => m.GetSymbol()?.Name == "CallBaseGetter");
+			Assert.That(caller.Body.Descendants.OfType<InvocationExpression>(), Is.Empty, caller.ToString());
+			var reference = caller.Body.Descendants.OfType<MemberReferenceExpression>().Single();
+			Assert.That(((MemberResolveResult)reference.GetResolveResult()).Member, Is.SameAs(baseProperty));
+			Assert.That(reference.MemberName, Is.EqualTo("Title"));
+			if (!tokenize)
+			{
+				var references = ((string)AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES")).Split(Path.PathSeparator)
+					.Select(path => MetadataReference.CreateFromFile(path)).Append(MetadataReference.CreateFromFile(externalPath));
+				var compilation = CSharpCompilation.Create("AccessorExternalRecompiled", new[] { CSharpSyntaxTree.ParseText(tree.ToString()) },
+					references, new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
+				using var output = new MemoryStream();
+				var result = compilation.Emit(output);
+				Assert.That(result.Diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error), Is.Empty, tree.ToString());
+				Assert.That(result.Success, Is.True);
+			}
+		}
+		finally
+		{
+			directory.Delete(recursive: true);
+		}
+	}
+
+	static void CheckPropertyFamily(int accessors, bool descendant, bool newSlot, bool tokenize, bool sibling = false)
+	{
+		using var assembly = CreateAssembly(accessors, sibling ? Getter | Setter : accessors, baseHasProperty: true);
+		var module = assembly.MainModule;
+		var baseType = module.Types.Single(t => t.Name == "Base");
+		var derived = module.Types.Single(t => t.Name == "Derived");
+		derived.Properties.Clear();
+		foreach (var method in derived.Methods.Where(m => !m.IsConstructor))
+		{
+			method.IsSpecialName = false;
+			method.SemanticsAttributes = Cecil.MethodSemanticsAttributes.None;
+			method.IsNewSlot = newSlot;
+			method.IsFinal = !descendant && !newSlot;
+		}
+		if (descendant)
+			AddType("Leaf", derived, hasProperty: true, final: true);
+		if (sibling)
+			AddType("Sibling", baseType, hasProperty: true, final: false);
+		AddType("UnrelatedProperty", module.TypeSystem.Object, hasProperty: true, final: false);
+		AddType("UnrelatedMethod", module.TypeSystem.Object, hasProperty: false, final: false);
+		using var input = new MemoryStream();
+		assembly.Write(input);
+		input.Position = 0;
+		using var peFile = new PEFile("AccessorOverride.dll", input);
+		var resolver = new UniversalAssemblyResolver(null, false, $".NETCoreApp,Version=v{Environment.Version.Major}.0");
+		resolver.AddSearchDirectory(Path.GetDirectoryName(typeof(object).Assembly.Location));
+		var decompiler = new CSharpDecompiler(peFile, resolver, new DecompilerSettings { TokenizeNames = tokenize });
+		var types = decompiler.TypeSystem.MainModule.TypeDefinitions.Where(t => t.Namespace == "AccessorFixture").ToArray();
+		if (sibling)
+		{
+			var properties = types.SelectMany(t => t.Properties).ToArray();
+			Parallel.For(0, 64, i => {
+				var property = properties[i % properties.Length];
+				Assert.That(TypeSystemAstBuilder.CanUsePropertySyntax(property), Is.EqualTo(property.DeclaringTypeDefinition.Name == "UnrelatedProperty"));
+			});
+		}
+		var tree = decompiler.DecompileTypes(types.Select(t => (System.Reflection.Metadata.TypeDefinitionHandle)t.MetadataToken));
+		string code = tree.ToString();
+		foreach (var type in types.Where(t => t.Name != "CallSites"))
+		{
+			var original = module.Types.Single(t => t.Name == type.Name);
+			bool propertySyntax = type.Name == "UnrelatedProperty" || type.Name == "Base" && newSlot;
+			var declaration = tree.Descendants.OfType<TypeDeclaration>().Single(t => t.GetSymbol() == type);
+			Assert.That(type.Properties.Select(p => MetadataTokens.GetToken(p.MetadataToken)),
+				Is.EqualTo(original.Properties.Select(p => p.MetadataToken.ToInt32())));
+			Assert.That(declaration.Members.OfType<PropertyDeclaration>().Count(), Is.EqualTo(propertySyntax ? 1 : 0), code);
+			if (propertySyntax)
+			{
+				var property = type.Properties.Single();
+				Assert.That(TypeSystemAstBuilder.CanUsePropertySyntax(property), Is.True);
+				var node = declaration.Members.OfType<PropertyDeclaration>().Single();
+				Assert.That(node.GetSymbol(), Is.SameAs(property));
+				Assert.That(node.Name, Is.EqualTo(Name(property, "prop", tokenize)));
+				Assert.That(node.Modifiers.HasFlag(Modifiers.Virtual), Is.True);
+				Assert.That(node.Modifiers.HasFlag(Modifiers.Override), Is.False);
+				Assert.That(node.Modifiers.HasFlag(Modifiers.Sealed), Is.False);
+				Assert.That(declaration.Members.OfType<MethodDeclaration>(), Is.Empty, code);
+			}
+			else
+			{
+				foreach (var property in type.Properties)
+					Assert.That(TypeSystemAstBuilder.CanUsePropertySyntax(property), Is.False);
+				Assert.That(declaration.Members.OfType<MethodDeclaration>().Count(), Is.EqualTo(original.Methods.Count(m => !m.IsConstructor)));
+				foreach (var originalMethod in original.Methods.Where(m => !m.IsConstructor))
+				{
+					var method = type.GetMethods(m => m.Name == originalMethod.Name, GetMemberOptions.IgnoreInheritedMembers)
+						.Concat(type.GetAccessors(m => m.Name == originalMethod.Name, GetMemberOptions.IgnoreInheritedMembers)).Single();
+					Assert.That(method.IsAccessor, Is.EqualTo(original.Properties.Count != 0));
+					var node = declaration.Members.OfType<MethodDeclaration>().Single(m => m.GetSymbol() == method);
+					Assert.That(node.GetSymbol(), Is.SameAs(method));
+					Assert.That(MetadataTokens.GetToken(method.MetadataToken), Is.EqualTo(originalMethod.MetadataToken.ToInt32()));
+					Assert.That(node.Name, Is.EqualTo(Name(method, "method", tokenize)));
+					Assert.That(node.Modifiers.HasFlag(Modifiers.Override), Is.EqualTo(!originalMethod.IsNewSlot));
+					Assert.That(node.Modifiers.HasFlag(Modifiers.Virtual), Is.EqualTo(originalMethod.IsNewSlot));
+					Assert.That(node.Modifiers.HasFlag(Modifiers.Sealed), Is.EqualTo(originalMethod.IsFinal));
+				}
+			}
+			foreach (var originalMethod in original.Methods.Where(m => !m.IsConstructor))
+			{
+				bool getter = originalMethod.Name == "get_Title";
+				var caller = tree.Descendants.OfType<MethodDeclaration>().Single(m => m.GetSymbol()?.Name == "Call" + type.Name + (getter ? "Getter" : "Setter"));
+				var reference = caller.Body.Descendants.OfType<MemberReferenceExpression>().Single();
+				var call = reference.Parent is InvocationExpression invocation ? invocation : (Expression)reference;
+				var result = call.GetResolveResult() as MemberResolveResult;
+				Assert.That(result, Is.Not.Null, caller.ToString());
+				if (propertySyntax)
+				{
+					Assert.That(result.Member, Is.SameAs(type.Properties.Single()));
+					Assert.That(reference.MemberName, Is.EqualTo(Name(result.Member, "prop", tokenize)));
+					Assert.That(caller.Body.Descendants.OfType<InvocationExpression>(), Is.Empty, caller.ToString());
+				}
+				else
+				{
+					var method = declaration.Members.OfType<MethodDeclaration>().Single(m => m.GetSymbol()?.Name == originalMethod.Name);
+					Assert.That(reference.Parent, Is.TypeOf<InvocationExpression>(), caller.ToString());
+					Assert.That(result.Member.MemberDefinition, Is.SameAs(method.GetSymbol()));
+					Assert.That(result.Member.MetadataToken, Is.EqualTo(((IMethod)method.GetSymbol()).MetadataToken));
+					Assert.That(reference.MemberName, Is.EqualTo(method.Name));
+				}
+			}
+		}
+		if (!tokenize)
+			AssertCompileBack(code, assembly, baseHasProperty: false, checkFamily: !newSlot);
+
+		void AddType(string name, Cecil.TypeReference parent, bool hasProperty, bool final)
+		{
+			var type = new Cecil.TypeDefinition("AccessorFixture", name, Cecil.TypeAttributes.Public, parent);
+			module.Types.Add(type);
+			var property = hasProperty ? new Cecil.PropertyDefinition("Title", Cecil.PropertyAttributes.None, module.TypeSystem.Int32) : null;
+			if (property != null)
+				type.Properties.Add(property);
+			foreach (var source in baseType.Methods.Where(m => !m.IsConstructor))
+			{
+				var method = new Cecil.MethodDefinition(source.Name, source.Attributes, source.ReturnType);
+				method.IsNewSlot = parent == module.TypeSystem.Object;
+				method.IsFinal = final;
+				method.IsSpecialName = hasProperty;
+				foreach (var parameter in source.Parameters)
+					method.Parameters.Add(new Cecil.ParameterDefinition(parameter.Name, parameter.Attributes, parameter.ParameterType));
+				bool getter = method.Name == "get_Title";
+				if (getter)
+					Emit(method, OpCodes.Ldc_I4_3);
+				Emit(method, OpCodes.Ret);
+				type.Methods.Add(method);
+				if (property != null)
+				{
+					if (getter)
+						property.GetMethod = method;
+					else
+						property.SetMethod = method;
+				}
+				var caller = new Cecil.MethodDefinition("Call" + name + (getter ? "Getter" : "Setter"), Cecil.MethodAttributes.Public | Cecil.MethodAttributes.Static, method.ReturnType);
+				caller.Parameters.Add(new Cecil.ParameterDefinition("instance", Cecil.ParameterAttributes.None, type));
+				Emit(caller, OpCodes.Ldarg_0);
+				if (!getter)
+					Emit(caller, OpCodes.Ldc_I4_1);
+				Call(caller, method);
+				Emit(caller, OpCodes.Ret);
+				module.Types.Single(t => t.Name == "CallSites").Methods.Add(caller);
+			}
+		}
+	}
+
 	static string Name(IMember member, string prefix, bool tokenize)
 		=> tokenize ? $"{prefix}_{MetadataTokens.GetToken(member.MetadataToken):X8}" : member.Name;
 
-	static void AssertCompileBack(string code, Cecil.AssemblyDefinition original, bool baseHasProperty)
+	static void AssertCompileBack(string code, Cecil.AssemblyDefinition original, bool baseHasProperty, bool checkFamily = false)
 	{
 		var references = ((string)AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES"))
 			.Split(Path.PathSeparator).Select(path => MetadataReference.CreateFromFile(path));
@@ -344,15 +603,19 @@ public sealed class AccessorOverrideProjectionTests
 		Assert.That(result.Success, Is.True);
 		output.Position = 0;
 		using var rebuilt = Cecil.AssemblyDefinition.ReadAssembly(output);
-		var derived = rebuilt.MainModule.Types.Single(t => t.Name == "Derived");
-		Assert.That(derived.Properties.Count, Is.EqualTo(baseHasProperty ? 1 : 0));
-		foreach (var method in original.MainModule.Types.Single(t => t.Name == "Derived").Methods.Where(m => !m.IsConstructor))
+		foreach (var type in original.MainModule.Types.Where(t => t.Name == "Derived" || checkFamily && (t.Name == "Base" || t.Name == "Leaf" || t.Name == "Sibling")))
 		{
-			var recompiled = derived.Methods.Single(m => m.Name == method.Name);
-			Assert.That(recompiled.IsVirtual, Is.True);
-			Assert.That(recompiled.IsNewSlot, Is.EqualTo(method.IsNewSlot));
-			Assert.That(recompiled.ReturnType.FullName, Is.EqualTo(method.ReturnType.FullName));
-			Assert.That(recompiled.Parameters.Select(p => p.ParameterType.FullName), Is.EqualTo(method.Parameters.Select(p => p.ParameterType.FullName)));
+			var recompiledType = rebuilt.MainModule.Types.Single(t => t.Name == type.Name);
+			Assert.That(recompiledType.Properties.Count, Is.EqualTo(baseHasProperty ? 1 : 0));
+			foreach (var method in type.Methods.Where(m => !m.IsConstructor))
+			{
+				var recompiled = recompiledType.Methods.Single(m => m.Name == method.Name);
+				Assert.That(recompiled.IsVirtual, Is.True);
+				Assert.That(recompiled.IsNewSlot, Is.EqualTo(method.IsNewSlot));
+				Assert.That(recompiled.IsFinal, Is.EqualTo(method.IsFinal));
+				Assert.That(recompiled.ReturnType.FullName, Is.EqualTo(method.ReturnType.FullName));
+				Assert.That(recompiled.Parameters.Select(p => p.ParameterType.FullName), Is.EqualTo(method.Parameters.Select(p => p.ParameterType.FullName)));
+			}
 		}
 	}
 

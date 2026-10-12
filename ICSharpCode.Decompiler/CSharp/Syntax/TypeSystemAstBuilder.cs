@@ -2033,7 +2033,70 @@ namespace ICSharpCode.Decompiler.CSharp.Syntax
 			}
 		}
 
+		static readonly object propertySyntaxCacheKey = new object();
+
 		internal static bool CanUsePropertySyntax(IProperty property)
+		{
+			if (!CanUsePropertySyntaxInBaseTypes(property))
+				return false;
+			var compilation = property.Compilation;
+			if (property.ParentModule != compilation.MainModule)
+				return true;
+			var projected = (Lazy<HashSet<IProperty>>)compilation.CacheManager.GetOrAddShared(
+				propertySyntaxCacheKey, _ => new Lazy<HashSet<IProperty>>(() => CollectProjectedProperties(compilation.MainModule)));
+			return !projected.Value.Contains((IProperty)property.MemberDefinition);
+		}
+
+		static HashSet<IProperty> CollectProjectedProperties(IModule module)
+		{
+			var projected = new HashSet<IProperty>();
+			var neighbors = new Dictionary<IProperty, HashSet<IProperty>>();
+			foreach (var type in module.TypeDefinitions)
+			{
+				foreach (var property in type.Properties)
+				{
+					if (!CanUsePropertySyntaxInBaseTypes(property))
+						projected.Add((IProperty)property.MemberDefinition);
+				}
+				foreach (var method in type.Methods.Concat(type.GetAccessors(options: GetMemberOptions.IgnoreInheritedMembers)))
+				{
+					var baseMethod = FindBaseVirtualMethod(method);
+					if (baseMethod?.AccessorOwner is not IProperty baseProperty || baseProperty.ParentModule != module)
+						continue;
+					baseProperty = (IProperty)baseProperty.MemberDefinition;
+					if (method.AccessorOwner is not IProperty property)
+					{
+						// A regular override cannot share C# property syntax with its base accessor.
+						projected.Add(baseProperty);
+						continue;
+					}
+					property = (IProperty)property.MemberDefinition;
+					Connect(property, baseProperty);
+					Connect(baseProperty, property);
+				}
+			}
+			var pending = new Queue<IProperty>(projected);
+			while (pending.Count > 0)
+			{
+				if (!neighbors.TryGetValue(pending.Dequeue(), out var connected))
+					continue;
+				foreach (var property in connected)
+				{
+					if (projected.Add(property))
+						pending.Enqueue(property);
+				}
+			}
+			return projected;
+
+			void Connect(IProperty from, IProperty to)
+			{
+				if (!neighbors.TryGetValue(from, out var connected))
+					neighbors.Add(from, connected = new HashSet<IProperty>());
+				connected.Add(to);
+			}
+		}
+
+		static bool CanUsePropertySyntaxInBaseTypes(IProperty property)
 		{
 			var visited = new HashSet<IProperty>();
 			return Check(property);
@@ -2058,7 +2121,18 @@ namespace ICSharpCode.Decompiler.CSharp.Syntax
 
 		internal static IMethod? FindBaseAccessorMethod(IMethod accessor)
 		{
-			if (!accessor.IsAccessor || !accessor.IsOverride)
+			var baseMethod = FindBaseVirtualMethod(accessor);
+			// Referenced properties cannot be reprojected; regular methods still need
+			// the existing fallback when their base accessor retains property syntax.
+			if (!accessor.IsAccessor && baseMethod is { IsAccessor: true }
+				&& (baseMethod.AccessorOwner is not IProperty property || CanUsePropertySyntax(property)))
+				return null;
+			return baseMethod;
+		}
+
+		static IMethod? FindBaseVirtualMethod(IMethod accessor)
+		{
+			if (!accessor.IsOverride)
 				return null;
 			foreach (var baseType in accessor.DeclaringType.GetNonInterfaceBaseTypes().Reverse())
 			{

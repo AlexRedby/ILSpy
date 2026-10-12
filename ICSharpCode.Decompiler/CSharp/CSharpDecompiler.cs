@@ -2818,7 +2818,7 @@ namespace ICSharpCode.Decompiler.CSharp
 
 		/// <summary>
 		/// Decompiles a parameterized property (a named property with parameters, e.g. from
-		/// VB.NET) or properties overriding regular methods into accessor declarations,
+		/// VB.NET) or properties sharing virtual slots with regular methods into accessor declarations,
 		/// because C# has no syntax for such properties. Property-level attributes are placed on the first accessor
 		/// under the 'property:' attribute target, which is not valid for methods and is
 		/// therefore ignored by the C# compiler (CS0657): recompilation neither loses the
@@ -2837,7 +2837,7 @@ namespace ICSharpCode.Decompiler.CSharp
 				{
 					accessorDecl.AddLeadingTrivia(new Comment(property.IsParameterizedProperty()
 						? $" C# has no syntax for parameterized property '{property.Name}'."
-						: $" C# cannot express property '{property.Name}' overriding regular methods."));
+						: $" C# cannot express property '{property.Name}' sharing virtual slots with regular methods."));
 					var attributes = property.GetAttributes().Select(typeSystemAstBuilder.ConvertAttribute).ToList();
 					if (attributes.Count > 0)
 					{
