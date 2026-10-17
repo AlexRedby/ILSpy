@@ -22,7 +22,7 @@ namespace ICSharpCode.Decompiler.Tests.TestCases.ILPretty
 					*ptr3 = uIntPtr;
 				}
 			}
-			fixed (Guid[] ptr = NullVal)
+			fixed (Guid* nullVal = NullVal)
 			{
 			}
 		}

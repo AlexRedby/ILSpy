@@ -16,7 +16,11 @@ namespace Issue3465
 		private static bool Test3465()
 		{
 			Program program = GetProgram();
+#if EXPECTED_OUTPUT
+			return (nuint)System.Runtime.CompilerServices.Unsafe.As<Program, UIntPtr>(ref program) > (nuint)System.Runtime.CompilerServices.Unsafe.As<Program, UIntPtr>(ref System.Runtime.CompilerServices.Unsafe.AsRef<Program>(programNull));
+#else
 			return System.Runtime.CompilerServices.Unsafe.As<Program, UIntPtr>(ref program) > System.Runtime.CompilerServices.Unsafe.As<Program, UIntPtr>(ref programNull);
+#endif
 		}
 	}
 }

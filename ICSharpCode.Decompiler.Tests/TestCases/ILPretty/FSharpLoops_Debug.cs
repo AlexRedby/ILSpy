@@ -85,15 +85,16 @@ public static class Program
 			pc = 2;
 		}
 
-		public bool get_CheckClose()
-		{
-			switch (pc)
-			{
-				default:
-					return false;
-				case 0:
-				case 2:
-					return false;
+		public override bool CheckClose {
+			get {
+				switch (pc)
+				{
+					default:
+						return false;
+					case 0:
+					case 2:
+						return false;
+				}
 			}
 		}
 

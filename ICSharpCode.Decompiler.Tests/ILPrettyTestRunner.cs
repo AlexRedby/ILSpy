@@ -127,6 +127,10 @@ namespace ICSharpCode.Decompiler.Tests
 		public async Task Issue1918()
 		{
 			await Run();
+			var compilation = await Tester.CompileCSharp(
+				Path.Combine(TestCasePath, "Issue1918.cs"),
+				CompilerOptions.UseRoslynLatest | CompilerOptions.Library).ConfigureAwait(false);
+			compilation.DeleteTempFiles();
 		}
 
 		[Test]
